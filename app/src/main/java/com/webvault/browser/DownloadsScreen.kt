@@ -1,5 +1,6 @@
 package com.webvault.browser
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,9 +13,9 @@ import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,7 +35,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun DownloadsScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val downloads by WebvaultDatabase.get(context).downloadDao().observeAll().collectAsState(initial = emptyList())
+    val dao = remember { WebvaultDatabase.get(context).downloadDao() }
+    val downloads by dao.observeAll().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     val refreshingState = remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullRefreshState(
@@ -48,20 +50,27 @@ fun DownloadsScreen(modifier: Modifier = Modifier) {
         }
     )
 
-    androidx.compose.foundation.layout.Box(
-        modifier = modifier.fillMaxSize().pullRefresh(pullRefreshState)
-    ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
+    androidx.compose.foundation.layout.Box(modifier = modifier.fillMaxSize().pullRefresh(pullRefreshState)) {
+        LazyColumn(modifier = Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(downloads) { d ->
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(text = d.filename)
-                        if (d.status == "COMPLETE") {
-                            AssistChip(onClick = {}, label = { Text("Complete") })
-                            Button(onClick = { /* move to vault placeholder */ }) { Text("→ Vault") }
+                        if (d.status == "COMPLETE" || d.status == "VAULTED") {
+                            AssistChip(onClick = {}, label = { Text(if (d.status == "VAULTED") "In Vault" else "Complete") })
+                            if (d.status != "VAULTED") {
+                                Button(onClick = {
+                                    scope.launch {
+                                        val moved = VaultManager.moveDownloadToVault(context, d)
+                                        if (moved.isSuccess) {
+                                            dao.upsert(d.copy(status = "VAULTED", filePath = moved.getOrNull()?.absolutePath.orEmpty()))
+                                            Toast.makeText(context, "Moved to Vault", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "Vault move failed", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }) { Text("→ Vault") }
+                            }
                         } else {
                             val progress = if (d.totalBytes > 0) d.downloadedBytes.toFloat() / d.totalBytes.toFloat() else 0f
                             LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
@@ -75,10 +84,6 @@ fun DownloadsScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        PullRefreshIndicator(
-            refreshing = refreshingState.value,
-            state = pullRefreshState,
-            modifier = Modifier.align(Alignment.TopCenter)
-        )
+        PullRefreshIndicator(refreshing = refreshingState.value, state = pullRefreshState, modifier = Modifier.align(Alignment.TopCenter))
     }
 }
