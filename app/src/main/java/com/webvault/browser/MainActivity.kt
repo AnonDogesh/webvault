@@ -81,7 +81,7 @@ fun WebvaultApp() {
             BottomNavItem.Browser -> BrowserScreen(Modifier.padding(innerPadding))
             BottomNavItem.Downloads -> PlaceholderScreen("Downloads", Modifier.padding(innerPadding))
             BottomNavItem.Vault -> PlaceholderScreen("Vault", Modifier.padding(innerPadding))
-            BottomNavItem.Settings -> PlaceholderScreen("Settings", Modifier.padding(innerPadding))
+            BottomNavItem.Settings -> SettingsScreen(Modifier.padding(innerPadding))
         }
     }
 }
