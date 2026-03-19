@@ -1,0 +1,84 @@
+package com.webvault.browser
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.ExperimentalMaterialApi
+import androidx.compose.material.pullrefresh.PullRefreshIndicator
+import androidx.compose.material.pullrefresh.pullRefresh
+import androidx.compose.material.pullrefresh.rememberPullRefreshState
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+@OptIn(ExperimentalMaterialApi::class)
+@Composable
+fun DownloadsScreen(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val downloads by WebvaultDatabase.get(context).downloadDao().observeAll().collectAsState(initial = emptyList())
+    val scope = rememberCoroutineScope()
+    val refreshingState = remember { mutableStateOf(false) }
+    val pullRefreshState = rememberPullRefreshState(
+        refreshing = refreshingState.value,
+        onRefresh = {
+            scope.launch {
+                refreshingState.value = true
+                delay(600)
+                refreshingState.value = false
+            }
+        }
+    )
+
+    androidx.compose.foundation.layout.Box(
+        modifier = modifier.fillMaxSize().pullRefresh(pullRefreshState)
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(downloads) { d ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(text = d.filename)
+                        if (d.status == "COMPLETE") {
+                            AssistChip(onClick = {}, label = { Text("Complete") })
+                            Button(onClick = { /* move to vault placeholder */ }) { Text("→ Vault") }
+                        } else {
+                            val progress = if (d.totalBytes > 0) d.downloadedBytes.toFloat() / d.totalBytes.toFloat() else 0f
+                            LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                                Text(d.status)
+                                Text("${(progress * 100).toInt()}%")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        PullRefreshIndicator(
+            refreshing = refreshingState.value,
+            state = pullRefreshState,
+            modifier = Modifier.align(Alignment.TopCenter)
+        )
+    }
+}
