@@ -31,6 +31,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -396,7 +397,7 @@ private fun VideoListSheet(videos: List<DetectedVideo>, onDismiss: () -> Unit, o
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state) {
         LazyVerticalGrid(columns = GridCells.Fixed(1), modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            androidx.compose.foundation.lazy.grid.items(videos) { video ->
+            gridItems(videos) { video ->
                 Card(Modifier.fillMaxWidth()) {
                     Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(video.filename, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -451,7 +452,7 @@ private fun TabSheet(tabs: List<Tab>, activeTabId: Int, onSelectTab: (Int) -> Un
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         LazyVerticalGrid(columns = GridCells.Fixed(2), modifier = Modifier.fillMaxWidth().height(320.dp).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            androidx.compose.foundation.lazy.grid.items(tabs) { tab ->
+            gridItems(tabs) { tab ->
                 Card(modifier = Modifier.fillMaxWidth().clickable { onSelectTab(tab.id) }, colors = CardDefaults.cardColors(containerColor = if (tab.id == activeTabId) Color(0xFFE3F2FD) else AppSurface)) {
                     Column(Modifier.padding(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
