@@ -7,11 +7,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Web
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -62,8 +62,8 @@ fun WebvaultApp() {
                             Icon(
                                 imageVector = when (item) {
                                     BottomNavItem.Home -> Icons.Default.Home
-                                    BottomNavItem.Browser -> Icons.Default.Web
-                                    BottomNavItem.Downloads -> Icons.Default.Download
+                                    BottomNavItem.Browser -> Icons.Default.Search
+                                    BottomNavItem.Downloads -> Icons.Default.ArrowDownward
                                     BottomNavItem.Vault -> Icons.Default.Lock
                                     BottomNavItem.Settings -> Icons.Default.Settings
                                 },

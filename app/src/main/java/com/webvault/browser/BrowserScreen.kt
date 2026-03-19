@@ -28,9 +28,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,13 +40,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -344,6 +343,7 @@ private fun enqueueDownload(context: android.content.Context, video: DetectedVid
     WorkManager.getInstance(context).enqueue(work)
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun VideoDownloadBanner(
     modifier: Modifier = Modifier,
@@ -390,12 +390,13 @@ private fun VideoDownloadBanner(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun VideoListSheet(videos: List<DetectedVideo>, onDismiss: () -> Unit, onDownload: (DetectedVideo) -> Unit) {
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state) {
         LazyVerticalGrid(columns = GridCells.Fixed(1), modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(videos) { video ->
+            androidx.compose.foundation.lazy.grid.items(videos) { video ->
                 Card(Modifier.fillMaxWidth()) {
                     Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(video.filename, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -440,16 +441,17 @@ private fun AddressBar(
         Spacer(Modifier.width(6.dp))
         Box(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFFE3F2FD)).padding(horizontal = 8.dp, vertical = 5.dp)) { Text("Blocked: $blockedCount", style = MaterialTheme.typography.labelSmall, color = PrimaryBlue) }
         Spacer(Modifier.width(8.dp))
-        Icon(if (isLoading) Icons.Default.Stop else Icons.Default.Refresh, contentDescription = if (isLoading) "Stop loading" else "Refresh", modifier = Modifier.size(24.dp).clickable(onClick = onRefreshOrStop))
+        Icon(if (isLoading) Icons.Default.Close else Icons.Default.Refresh, contentDescription = if (isLoading) "Stop loading" else "Refresh", modifier = Modifier.size(24.dp).clickable(onClick = onRefreshOrStop))
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TabSheet(tabs: List<Tab>, activeTabId: Int, onSelectTab: (Int) -> Unit, onCloseTab: (Int) -> Unit, onNewTab: () -> Unit, onDismiss: () -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         LazyVerticalGrid(columns = GridCells.Fixed(2), modifier = Modifier.fillMaxWidth().height(320.dp).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(tabs) { tab ->
+            androidx.compose.foundation.lazy.grid.items(tabs) { tab ->
                 Card(modifier = Modifier.fillMaxWidth().clickable { onSelectTab(tab.id) }, colors = CardDefaults.cardColors(containerColor = if (tab.id == activeTabId) Color(0xFFE3F2FD) else AppSurface)) {
                     Column(Modifier.padding(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
