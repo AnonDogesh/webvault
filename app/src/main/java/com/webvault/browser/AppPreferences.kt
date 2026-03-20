@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -15,15 +16,70 @@ private val Context.webvaultDataStore: DataStore<Preferences> by preferencesData
 
 object AppPreferences {
     private val adBlockEnabledKey = booleanPreferencesKey("ad_block_enabled")
+    private val httpsEverywhereEnabledKey = booleanPreferencesKey("https_everywhere_enabled")
+    private val videoSnifferEnabledKey = booleanPreferencesKey("video_sniffer_enabled")
+    private val biometricLockEnabledKey = booleanPreferencesKey("biometric_lock_enabled")
+    private val homepageKey = stringPreferencesKey("homepage")
+    private val downloadQualityKey = stringPreferencesKey("download_quality")
     private val jsRulesKey = stringSetPreferencesKey("js_rules")
 
     fun adBlockEnabledFlow(context: Context): Flow<Boolean> = context.webvaultDataStore.data.map {
         it[adBlockEnabledKey] ?: true
     }
 
+    fun httpsEverywhereEnabledFlow(context: Context): Flow<Boolean> = context.webvaultDataStore.data.map {
+        it[httpsEverywhereEnabledKey] ?: true
+    }
+
+    fun videoSnifferEnabledFlow(context: Context): Flow<Boolean> = context.webvaultDataStore.data.map {
+        it[videoSnifferEnabledKey] ?: true
+    }
+
+    fun biometricLockEnabledFlow(context: Context): Flow<Boolean> = context.webvaultDataStore.data.map {
+        it[biometricLockEnabledKey] ?: true
+    }
+
+    fun homepageFlow(context: Context): Flow<String> = context.webvaultDataStore.data.map {
+        it[homepageKey] ?: "google.com"
+    }
+
+    fun downloadQualityFlow(context: Context): Flow<String> = context.webvaultDataStore.data.map {
+        it[downloadQualityKey] ?: "Prefer 1080p"
+    }
+
     suspend fun setAdBlockEnabled(context: Context, enabled: Boolean) {
         context.webvaultDataStore.edit { prefs ->
             prefs[adBlockEnabledKey] = enabled
+        }
+    }
+
+    suspend fun setHttpsEverywhereEnabled(context: Context, enabled: Boolean) {
+        context.webvaultDataStore.edit { prefs ->
+            prefs[httpsEverywhereEnabledKey] = enabled
+        }
+    }
+
+    suspend fun setVideoSnifferEnabled(context: Context, enabled: Boolean) {
+        context.webvaultDataStore.edit { prefs ->
+            prefs[videoSnifferEnabledKey] = enabled
+        }
+    }
+
+    suspend fun setBiometricLockEnabled(context: Context, enabled: Boolean) {
+        context.webvaultDataStore.edit { prefs ->
+            prefs[biometricLockEnabledKey] = enabled
+        }
+    }
+
+    suspend fun setHomepage(context: Context, homepage: String) {
+        context.webvaultDataStore.edit { prefs ->
+            prefs[homepageKey] = homepage
+        }
+    }
+
+    suspend fun setDownloadQuality(context: Context, quality: String) {
+        context.webvaultDataStore.edit { prefs ->
+            prefs[downloadQualityKey] = quality
         }
     }
 

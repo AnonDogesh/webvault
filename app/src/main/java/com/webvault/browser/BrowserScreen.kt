@@ -141,6 +141,8 @@ fun BrowserScreen(
     var showVideoListSheet by remember { mutableStateOf(false) }
     val blockedCount by AdBlocker.blockedCount.collectAsState()
     val adBlockEnabled by AppPreferences.adBlockEnabledFlow(context).collectAsState(initial = true)
+    val httpsEverywhereEnabled by AppPreferences.httpsEverywhereEnabledFlow(context).collectAsState(initial = true)
+    val videoSnifferEnabled by AppPreferences.videoSnifferEnabledFlow(context).collectAsState(initial = true)
     val detectedVideos by videoSnifferViewModel.videos.collectAsState()
 
     val bridge = remember(videoSnifferViewModel) { VideoSnifferBridge(videoSnifferViewModel) }
@@ -204,6 +206,7 @@ fun BrowserScreen(
                     factory = { ctx ->
                         WebView(ctx).apply {
                             settings.domStorageEnabled = true
+                            settings.javaScriptEnabled = true
                             settings.userAgentString = "Webvault/1.0 Mobile"
                             addJavascriptInterface(bridge, "Android")
 
@@ -244,7 +247,7 @@ fun BrowserScreen(
                                     val newUrl = request?.url?.toString().orEmpty()
                                     if (newUrl.isBlank()) return false
                                     val uri = Uri.parse(newUrl)
-                                    if (uri.scheme == "http" && !httpOnlyDomains.contains(uri.host.orEmpty())) {
+                                    if (httpsEverywhereEnabled && uri.scheme == "http" && !httpOnlyDomains.contains(uri.host.orEmpty())) {
                                         view?.loadUrl(uri.buildUpon().scheme("https").build().toString())
                                         return true
                                     }
@@ -258,7 +261,7 @@ fun BrowserScreen(
                                     val requestUrl = request?.url?.toString().orEmpty()
                                     val lower = requestUrl.lowercase()
                                     val contentTypeHint = request?.requestHeaders?.entries?.firstOrNull { it.key.equals("Accept", true) }?.value?.lowercase().orEmpty()
-                                    if (videoExtensions.any { lower.contains(it) } || contentTypeHint.contains("video/")) {
+                                    if (videoSnifferEnabled && (videoExtensions.any { lower.contains(it) } || contentTypeHint.contains("video/"))) {
                                         videoSnifferViewModel.onVideoDetected(requestUrl, type = lower.substringAfterLast('.', "video"))
                                     }
                                     if (adBlockEnabled) return AdBlocker.interceptIfBlocked(requestUrl)

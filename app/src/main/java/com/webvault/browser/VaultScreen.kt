@@ -37,6 +37,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -58,6 +59,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun VaultScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val biometricLockEnabled by AppPreferences.biometricLockEnabledFlow(context).collectAsState(initial = true)
     var unlocked by remember { mutableStateOf(false) }
     var pinInput by remember { mutableStateOf("") }
     var confirmPinInput by remember { mutableStateOf("") }
@@ -81,6 +83,7 @@ fun VaultScreen(modifier: Modifier = Modifier) {
             setupMode = setupMode,
             confirmPinInput = confirmPinInput,
             lockoutSeconds = lockoutSeconds,
+            biometricEnabled = biometricLockEnabled,
             onDigit = { d ->
                 if (lockoutSeconds > 0) return@LockedVaultScreen
                 if (setupMode) {
@@ -163,6 +166,7 @@ private fun LockedVaultScreen(
     setupMode: Boolean,
     confirmPinInput: String,
     lockoutSeconds: Int,
+    biometricEnabled: Boolean,
     onDigit: (String) -> Unit,
     onDelete: () -> Unit,
     onBiometric: () -> Unit
@@ -217,8 +221,9 @@ private fun LockedVaultScreen(
                 }
             }
         }
-
-        Button(onClick = onBiometric) { Text("Use fingerprint instead") }
+        if (biometricEnabled) {
+            Button(onClick = onBiometric) { Text("Use fingerprint instead") }
+        }
     }
 }
 
