@@ -29,7 +29,7 @@ Copy the output and save it as the `KEYSTORE_FILE` secret in GitHub.
 ### Workflow behavior
 
 - Runs on every pull request and on push to `main`.
-- Builds release APK via `./gradlew assembleRelease`.
-- Decodes and uses signing keystore from secrets.
-- Uploads signed APK artifact named **Webvault-release.apk** (7-day retention).
-- On push to `main`, also creates a GitHub Release and attaches the signed APK.
+- Always builds the release APK via `./gradlew assembleRelease`.
+- Signs the APK only when all required signing secrets are available.
+- Uploads **Webvault-release.apk** when signing succeeds, otherwise uploads **Webvault-release-unsigned.apk**.
+- On push to `main`, creates a GitHub Release only when signing secrets are configured.

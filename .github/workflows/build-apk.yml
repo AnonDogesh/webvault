@@ -36,15 +36,26 @@ jobs:
       - name: Build release APK
         run: ./gradlew assembleRelease
 
+      - name: Check signing secrets
+        id: signing
+        env:
+          KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_FILE" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ] && [ -n "$STORE_PASSWORD" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Signing secrets are unavailable; continuing with unsigned APK only."
+          fi
+
       - name: Decode keystore
+        if: steps.signing.outputs.enabled == 'true'
         env:
           KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
         run: |
-          if [ -z "$KEYSTORE_FILE" ]; then
-            echo "KEYSTORE_FILE secret is empty"
-            exit 1
-          fi
-
           # KEYSTORE_FILE must be base64 of the raw keystore bytes
           printf '%s' "$KEYSTORE_FILE" | base64 --decode > /tmp/webvault.keystore
 
@@ -54,6 +65,7 @@ jobs:
           fi
 
       - name: Sign APK
+        if: steps.signing.outputs.enabled == 'true'
         env:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -85,7 +97,16 @@ jobs:
             --out "$SIGNED_APK" \
             "$UNSIGNED_APK"
 
+      - name: Upload unsigned APK artifact
+        if: steps.signing.outputs.enabled != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Webvault-release-unsigned.apk
+          path: app/build/outputs/apk/release/*-unsigned.apk
+          retention-days: 7
+
       - name: Upload signed APK artifact
+        if: steps.signing.outputs.enabled == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: Webvault-release.apk
@@ -93,7 +114,7 @@ jobs:
           retention-days: 7
 
       - name: Create GitHub Release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.signing.outputs.enabled == 'true'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ github.run_number }}
