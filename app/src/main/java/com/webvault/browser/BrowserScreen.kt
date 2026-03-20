@@ -307,7 +307,6 @@ fun BrowserScreen(
                                 }
                                 webViewRef = this
                             }
-                        }
                         },
                         update = { webView ->
                             webViewRef = webView
