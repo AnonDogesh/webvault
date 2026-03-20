@@ -57,7 +57,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     val httpsEverywhereEnabled by AppPreferences.httpsEverywhereEnabledFlow(context).collectAsState(initial = true)
     val videoSnifferEnabled by AppPreferences.videoSnifferEnabledFlow(context).collectAsState(initial = true)
     val biometricLockEnabled by AppPreferences.biometricLockEnabledFlow(context).collectAsState(initial = true)
-    val homepage by AppPreferences.homepageFlow(context).collectAsState(initial = "google.com")
+    val defaultSearchEngineId by AppPreferences.defaultSearchEngineFlow(context).collectAsState(initial = defaultSearchEngine().id)
     val downloadQuality by AppPreferences.downloadQualityFlow(context).collectAsState(initial = "Prefer 1080p")
 
     Column(
@@ -96,14 +96,16 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             )
             SettingsDivider()
             SettingsActionRow(
-                title = "Homepage",
-                subtitle = homepage,
+                title = "Default search engine",
+                subtitle = searchEngineById(defaultSearchEngineId).label,
                 icon = { SettingsRowIcon(Icons.Default.Home) },
                 onClick = {
                     scope.launch {
-                        val nextHomePage = if (homepage == "google.com") "startpage.com" else "google.com"
-                        AppPreferences.setHomepage(context, nextHomePage)
-                        Toast.makeText(context, "Homepage set to $nextHomePage", Toast.LENGTH_SHORT).show()
+                        val engines = allSearchEngines()
+                        val currentIndex = engines.indexOfFirst { it.id == defaultSearchEngineId }.coerceAtLeast(0)
+                        val nextEngine = engines[(currentIndex + 1) % engines.size]
+                        AppPreferences.setDefaultSearchEngine(context, nextEngine.id)
+                        Toast.makeText(context, "Default search engine: ${nextEngine.label}", Toast.LENGTH_SHORT).show()
                     }
                 }
             )
@@ -194,7 +196,7 @@ private fun AppInfoCard(onClick: () -> Unit) {
                     .background(SettingsBlue),
                 contentAlignment = Alignment.Center
             ) {
-                Text("AX", color = Color.White, fontWeight = FontWeight.Bold)
+                Text("WV", color = Color.White, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.size(12.dp))
             Column(Modifier.weight(1f)) {

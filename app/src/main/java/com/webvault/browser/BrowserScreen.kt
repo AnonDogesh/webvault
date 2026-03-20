@@ -141,12 +141,14 @@ fun BrowserScreen(
     var showTabsSheet by remember { mutableStateOf(false) }
     var showJsMenu by remember { mutableStateOf(false) }
     var showBrowserMenu by remember { mutableStateOf(false) }
+    var showSearchEngineMenu by remember { mutableStateOf(false) }
     var jsAllowed by remember { mutableStateOf(true) }
     var showVideoListSheet by remember { mutableStateOf(false) }
     val blockedCount by AdBlocker.blockedCount.collectAsState()
     val adBlockEnabled by AppPreferences.adBlockEnabledFlow(context).collectAsState(initial = true)
     val httpsEverywhereEnabled by AppPreferences.httpsEverywhereEnabledFlow(context).collectAsState(initial = true)
     val videoSnifferEnabled by AppPreferences.videoSnifferEnabledFlow(context).collectAsState(initial = true)
+    val defaultSearchEngineId by AppPreferences.defaultSearchEngineFlow(context).collectAsState(initial = defaultSearchEngine().id)
     val detectedVideos by videoSnifferViewModel.videos.collectAsState()
 
     val bridge = remember(videoSnifferViewModel) { VideoSnifferBridge(videoSnifferViewModel) }
@@ -155,7 +157,7 @@ fun BrowserScreen(
     LaunchedEffect(activeTabId) { addressBarText = activeTab.url }
 
     val onSubmitUrl: (String) -> Unit = { input ->
-        val target = normalizeToUrl(input)
+        val target = normalizeToUrl(input, activeTab.searchEngineId)
         if (target.isNotBlank()) {
             addressBarText = target
             TabManager.updateActiveTab(url = target)
@@ -172,6 +174,12 @@ fun BrowserScreen(
         }
     }
 
+    LaunchedEffect(activeTabId, defaultSearchEngineId) {
+        if (activeTab.url.isBlank() && activeTab.searchEngineId != defaultSearchEngineId) {
+            TabManager.updateActiveTab(searchEngineId = defaultSearchEngineId)
+        }
+    }
+
     val showHomePage = forceHomePage || (activeTab.url.isBlank() && pendingNavigationUrl.isNullOrBlank())
 
     BackHandler(enabled = webViewRef?.canGoBack() == true) { webViewRef?.goBack() }
@@ -180,7 +188,10 @@ fun BrowserScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             if (showHomePage) {
                 HomeScreen(
+                    searchSessionKey = activeTabId,
                     recentHistory = recentHistory.value,
+                    selectedSearchEngineLabel = searchEngineById(activeTab.searchEngineId).label,
+                    onSearchEngineClick = { showSearchEngineMenu = true },
                     onSubmit = onSubmitUrl,
                     onSpeedDialClick = onSubmitUrl
                 )
@@ -192,11 +203,12 @@ fun BrowserScreen(
                     isLoading = isLoading,
                     blockedCount = blockedCount,
                     jsAllowed = jsAllowed,
-                    isDesktopMode = activeTab.isDesktopMode,
+                    searchEngineLabel = searchEngineById(activeTab.searchEngineId).label,
                     onUrlChange = { addressBarText = it },
                     onUrlSubmit = { onSubmitUrl(addressBarText) },
                     onRefreshOrStop = { webViewRef?.let { if (isLoading) it.stopLoading() else it.reload() } },
                     onTabsClick = { showTabsSheet = true },
+                    onSearchEngineClick = { showSearchEngineMenu = true },
                     onLockLongPress = { showJsMenu = true },
                     onSetJavaScriptAllowed = { allowed ->
                         scope.launch {
@@ -336,6 +348,24 @@ fun BrowserScreen(
                             }
                         )
                     }
+                }
+            }
+        }
+
+        if (showSearchEngineMenu) {
+            DropdownMenu(
+                expanded = showSearchEngineMenu,
+                onDismissRequest = { showSearchEngineMenu = false },
+                modifier = Modifier.align(Alignment.TopEnd)
+            ) {
+                allSearchEngines().forEach { engine ->
+                    DropdownMenuItem(
+                        text = { Text(engine.label) },
+                        onClick = {
+                            TabManager.updateActiveTab(searchEngineId = engine.id)
+                            showSearchEngineMenu = false
+                        }
+                    )
                 }
             }
         }
@@ -505,11 +535,12 @@ private fun AddressBar(
     isLoading: Boolean,
     blockedCount: Int,
     jsAllowed: Boolean,
-    isDesktopMode: Boolean,
+    searchEngineLabel: String,
     onUrlChange: (String) -> Unit,
     onUrlSubmit: () -> Unit,
     onRefreshOrStop: () -> Unit,
     onTabsClick: () -> Unit,
+    onSearchEngineClick: () -> Unit,
     onLockLongPress: () -> Unit,
     onSetJavaScriptAllowed: (Boolean) -> Unit,
     showJsMenu: Boolean,
@@ -528,8 +559,8 @@ private fun AddressBar(
         Spacer(Modifier.width(8.dp))
         Box(Modifier.clip(CircleShape).background(PrimaryBlue).clickable(onClick = onTabsClick).padding(horizontal = 10.dp, vertical = 6.dp)) { Text(tabCount.toString(), color = Color.White, style = MaterialTheme.typography.labelMedium) }
         Spacer(Modifier.width(6.dp))
-        Box(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFFF3F7FF)).padding(horizontal = 8.dp, vertical = 5.dp)) {
-            Text(if (isDesktopMode) "Desktop" else "Mobile", style = MaterialTheme.typography.labelSmall, color = PrimaryBlue)
+        Box(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFFF3F7FF)).clickable(onClick = onSearchEngineClick).padding(horizontal = 8.dp, vertical = 5.dp)) {
+            Text(searchEngineLabel, style = MaterialTheme.typography.labelSmall, color = PrimaryBlue)
         }
         Spacer(Modifier.width(6.dp))
         Box(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFFE3F2FD)).padding(horizontal = 8.dp, vertical = 5.dp)) { Text("Blocked: $blockedCount", style = MaterialTheme.typography.labelSmall, color = PrimaryBlue) }
@@ -567,8 +598,16 @@ private fun TabSheet(tabs: List<Tab>, activeTabId: Int, onSelectTab: (Int) -> Un
 }
 
 @Composable
-fun HomeScreen(recentHistory: List<HistorySite>, onSubmit: (String) -> Unit, onSpeedDialClick: (String) -> Unit, modifier: Modifier = Modifier) {
-    var searchInput by rememberSaveable { mutableStateOf("") }
+fun HomeScreen(
+    searchSessionKey: Int,
+    recentHistory: List<HistorySite>,
+    selectedSearchEngineLabel: String,
+    onSearchEngineClick: () -> Unit,
+    onSubmit: (String) -> Unit,
+    onSpeedDialClick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var searchInput by rememberSaveable(searchSessionKey) { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
     Column(modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text("Webvault", color = PrimaryBlue, fontSize = 38.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 24.dp, bottom = 48.dp))
@@ -576,7 +615,11 @@ fun HomeScreen(recentHistory: List<HistorySite>, onSubmit: (String) -> Unit, onS
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Search, contentDescription = null, tint = PrimaryBlue)
                 Spacer(Modifier.width(8.dp))
-                OutlinedTextField(searchInput, onValueChange = { searchInput = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text("Search or enter URL") }, singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus(); onSubmit(searchInput) }), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent))
+                OutlinedTextField(searchInput, onValueChange = { searchInput = it }, modifier = Modifier.weight(1f), placeholder = { Text("Search or enter URL") }, singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus(); onSubmit(searchInput) }), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent))
+                Spacer(Modifier.width(8.dp))
+                Box(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFFF3F7FF)).clickable(onClick = onSearchEngineClick).padding(horizontal = 10.dp, vertical = 8.dp)) {
+                    Text(selectedSearchEngineLabel, style = MaterialTheme.typography.labelSmall, color = PrimaryBlue)
+                }
             }
         }
         Spacer(Modifier.height(20.dp))
@@ -611,7 +654,7 @@ fun HomeScreen(recentHistory: List<HistorySite>, onSubmit: (String) -> Unit, onS
     }
 }
 
-private fun normalizeToUrl(input: String): String {
+private fun normalizeToUrl(input: String, searchEngineId: String): String {
     val trimmed = input.trim()
     if (trimmed.isBlank()) return ""
     if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
@@ -627,6 +670,6 @@ private fun normalizeToUrl(input: String): String {
     return if (looksLikeUrl) {
         "https://$trimmed"
     } else {
-        "https://www.google.com/search?q=${Uri.encode(trimmed)}"
+        buildSearchUrl(trimmed, searchEngineId)
     }
 }

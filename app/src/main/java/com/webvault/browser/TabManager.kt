@@ -11,7 +11,8 @@ data class Tab(
     val url: String,
     val title: String,
     val faviconBitmap: Bitmap? = null,
-    val isDesktopMode: Boolean = false
+    val isDesktopMode: Boolean = false,
+    val searchEngineId: String = defaultSearchEngine().id
 )
 
 object TabManager {
@@ -65,7 +66,8 @@ object TabManager {
         url: String? = null,
         title: String? = null,
         favicon: Bitmap? = null,
-        desktopMode: Boolean? = null
+        desktopMode: Boolean? = null,
+        searchEngineId: String? = null
     ) {
         val activeId = _activeTabId.value
         _tabs.update { tabs ->
@@ -75,7 +77,8 @@ object TabManager {
                         url = url ?: tab.url,
                         title = title ?: tab.title,
                         faviconBitmap = favicon ?: tab.faviconBitmap,
-                        isDesktopMode = desktopMode ?: tab.isDesktopMode
+                        isDesktopMode = desktopMode ?: tab.isDesktopMode,
+                        searchEngineId = searchEngineId ?: tab.searchEngineId
                     )
                 } else tab
             }

@@ -19,7 +19,7 @@ object AppPreferences {
     private val httpsEverywhereEnabledKey = booleanPreferencesKey("https_everywhere_enabled")
     private val videoSnifferEnabledKey = booleanPreferencesKey("video_sniffer_enabled")
     private val biometricLockEnabledKey = booleanPreferencesKey("biometric_lock_enabled")
-    private val homepageKey = stringPreferencesKey("homepage")
+    private val defaultSearchEngineKey = stringPreferencesKey("default_search_engine")
     private val downloadQualityKey = stringPreferencesKey("download_quality")
     private val jsRulesKey = stringSetPreferencesKey("js_rules")
 
@@ -39,8 +39,8 @@ object AppPreferences {
         it[biometricLockEnabledKey] ?: true
     }
 
-    fun homepageFlow(context: Context): Flow<String> = context.webvaultDataStore.data.map {
-        it[homepageKey] ?: "google.com"
+    fun defaultSearchEngineFlow(context: Context): Flow<String> = context.webvaultDataStore.data.map {
+        it[defaultSearchEngineKey] ?: defaultSearchEngine().id
     }
 
     fun downloadQualityFlow(context: Context): Flow<String> = context.webvaultDataStore.data.map {
@@ -71,9 +71,9 @@ object AppPreferences {
         }
     }
 
-    suspend fun setHomepage(context: Context, homepage: String) {
+    suspend fun setDefaultSearchEngine(context: Context, searchEngineId: String) {
         context.webvaultDataStore.edit { prefs ->
-            prefs[homepageKey] = homepage
+            prefs[defaultSearchEngineKey] = searchEngineId
         }
     }
 
