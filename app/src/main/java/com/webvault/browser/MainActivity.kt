@@ -3,7 +3,6 @@ package com.webvault.browser
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import android.os.Bundle
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -22,7 +21,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.webvault.browser.ui.theme.WebvaultTheme
@@ -77,19 +75,16 @@ fun WebvaultApp() {
         }
     ) { innerPadding ->
         when (selectedItem) {
-            BottomNavItem.Home -> PlaceholderScreen("Home", Modifier.padding(innerPadding))
+            BottomNavItem.Home -> BrowserScreen(
+                modifier = Modifier.padding(innerPadding),
+                forceHomePage = true,
+                onNavigateToBrowser = { selectedItem = BottomNavItem.Browser }
+            )
             BottomNavItem.Browser -> BrowserScreen(Modifier.padding(innerPadding))
             BottomNavItem.Downloads -> DownloadsScreen(Modifier.padding(innerPadding))
             BottomNavItem.Vault -> VaultScreen(Modifier.padding(innerPadding))
             BottomNavItem.Settings -> SettingsScreen(Modifier.padding(innerPadding))
         }
-    }
-}
-
-@Composable
-private fun PlaceholderScreen(name: String, modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text = "$name Screen")
     }
 }
 

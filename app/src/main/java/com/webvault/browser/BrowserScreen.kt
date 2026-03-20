@@ -52,6 +52,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -117,6 +118,8 @@ data class HistorySite(val title: String, val url: String)
 @Composable
 fun BrowserScreen(
     modifier: Modifier = Modifier,
+    forceHomePage: Boolean = false,
+    onNavigateToBrowser: () -> Unit = {},
     videoSnifferViewModel: VideoSnifferViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -150,15 +153,22 @@ fun BrowserScreen(
         if (target.isNotBlank()) {
             addressBarText = target
             TabManager.updateActiveTab(url = target)
+            onNavigateToBrowser()
         }
     }
+
+    val showHomePage = forceHomePage || activeTab.url.isBlank()
 
     BackHandler(enabled = webViewRef?.canGoBack() == true) { webViewRef?.goBack() }
 
     Box(modifier = modifier.fillMaxSize().background(AppBackground)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            if (activeTab.url.isBlank()) {
-                HomeScreen(recentHistory.value, onSubmit = onSubmitUrl, onSpeedDialClick = onSubmitUrl)
+            if (showHomePage) {
+                HomeScreen(
+                    recentHistory = recentHistory.value,
+                    onSubmit = onSubmitUrl,
+                    onSpeedDialClick = onSubmitUrl
+                )
             } else {
                 AddressBar(
                     url = addressBarText,
@@ -269,6 +279,22 @@ fun BrowserScreen(
                             webView.loadUrl(activeTab.url)
                         }
                     }
+                )
+            }
+        }
+
+        if (showHomePage) {
+            FloatingActionButton(
+                onClick = { showTabsSheet = true },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(20.dp),
+                containerColor = PrimaryBlue,
+                contentColor = Color.White
+            ) {
+                Text(
+                    text = tabs.size.toString(),
+                    style = MaterialTheme.typography.titleMedium
                 )
             }
         }
@@ -522,6 +548,19 @@ fun HomeScreen(recentHistory: List<HistorySite>, onSubmit: (String) -> Unit, onS
 private fun normalizeToUrl(input: String): String {
     val trimmed = input.trim()
     if (trimmed.isBlank()) return ""
-    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed
-    return if (' ' in trimmed) "https://www.google.com/search?q=${Uri.encode(trimmed)}" else "https://$trimmed"
+    if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+        return trimmed
+    }
+
+    val hasSchemeLikePrefix = "://" in trimmed
+    val isLocalHost = trimmed.equals("localhost", ignoreCase = true) || trimmed.startsWith("localhost:", ignoreCase = true)
+    val isIpAddress = trimmed.matches(Regex("""\d{1,3}(\.\d{1,3}){3}(:\d+)?([/?#].*)?"""))
+    val hasDomainLikeHost = trimmed.contains('.') && !trimmed.contains(' ')
+    val looksLikeUrl = !hasSchemeLikePrefix && (isLocalHost || isIpAddress || hasDomainLikeHost)
+
+    return if (looksLikeUrl) {
+        "https://$trimmed"
+    } else {
+        "https://www.google.com/search?q=${Uri.encode(trimmed)}"
+    }
 }
