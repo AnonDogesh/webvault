@@ -152,16 +152,19 @@ fun BrowserScreen(
     val bridge = remember(videoSnifferViewModel) { VideoSnifferBridge(videoSnifferViewModel) }
 
     LaunchedEffect(Unit) { AdBlocker.initialize(context) }
-    LaunchedEffect(activeTabId) { addressBarText = activeTab.url }
+    LaunchedEffect(activeTabId) {
+        val url = TabManager.tabs.value.firstOrNull { it.id == activeTabId }?.url.orEmpty()
+        addressBarText = url
+    }
 
     val onSubmitUrl: (String) -> Unit = { input ->
         val target = normalizeToUrl(input, activeTab.searchEngineId)
         if (target.isNotBlank()) {
             addressBarText = target
             TabManager.updateActiveTab(url = target)
+            onNavigateToBrowser()
             isLoading = true
             loadProgress = 0.05f
-            onNavigateToBrowser()
         }
     }
 
@@ -231,95 +234,99 @@ fun BrowserScreen(
                     onSpeedDialClick = onSubmitUrl
                 )
             } else {
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = { ctx ->
-                        WebView(ctx).apply {
-                            settings.domStorageEnabled = true
-                            settings.javaScriptEnabled = true
-                            settings.useWideViewPort = activeTab.isDesktopMode
-                            settings.loadWithOverviewMode = activeTab.isDesktopMode
-                            settings.userAgentString = if (activeTab.isDesktopMode) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
-                            addJavascriptInterface(bridge, "Android")
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(AppBackground)
+                ) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { ctx ->
+                            WebView(ctx).apply {
+                                settings.domStorageEnabled = true
+                                settings.javaScriptEnabled = true
+                                settings.useWideViewPort = activeTab.isDesktopMode
+                                settings.loadWithOverviewMode = activeTab.isDesktopMode
+                                settings.userAgentString = if (activeTab.isDesktopMode) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
+                                addJavascriptInterface(bridge, "Android")
 
-                            webChromeClient = object : WebChromeClient() {
-                                override fun onProgressChanged(view: WebView?, newProgress: Int) { loadProgress = newProgress / 100f }
-                                override fun onReceivedTitle(view: WebView?, title: String?) { if (!title.isNullOrBlank()) TabManager.updateActiveTab(title = title) }
-                                override fun onReceivedIcon(view: WebView?, icon: Bitmap?) { if (icon != null) TabManager.updateActiveTab(favicon = icon) }
+                                webChromeClient = object : WebChromeClient() {
+                                    override fun onProgressChanged(view: WebView?, newProgress: Int) { loadProgress = newProgress / 100f }
+                                    override fun onReceivedTitle(view: WebView?, title: String?) { if (!title.isNullOrBlank()) TabManager.updateActiveTab(title = title) }
+                                    override fun onReceivedIcon(view: WebView?, icon: Bitmap?) { if (icon != null) TabManager.updateActiveTab(favicon = icon) }
+                                }
+
+                                webViewClient = object : WebViewClient() {
+                                    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                        super.onPageStarted(view, url, favicon)
+                                        isLoading = true
+                                        url?.let {
+                                            TabManager.updateActiveTab(url = it)
+                                            addressBarText = it
+                                            isSecure = it.startsWith("https://")
+                                        }
+                                        scope.launch {
+                                            val host = runCatching { Uri.parse(url).host.orEmpty() }.getOrDefault("")
+                                            jsAllowed = AppPreferences.isJavaScriptAllowed(context, host)
+                                            view?.settings?.javaScriptEnabled = jsAllowed
+                                        }
+                                    }
+
+                                    override fun onPageFinished(view: WebView?, url: String?) {
+                                        super.onPageFinished(view, url)
+                                        isLoading = false
+                                        loadProgress = 1f
+                                        injectVideoSnifferScript(view)
+                                        url?.let {
+                                            val title = runCatching { Uri.parse(it).host.orEmpty() }.getOrDefault(it).removePrefix("www.").ifBlank { it }
+                                            recentHistory.value = (listOf(HistorySite(title, it)) + recentHistory.value).distinctBy { site -> site.url }.take(5)
+                                        }
+                                    }
+
+                                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                        val newUrl = request?.url?.toString().orEmpty()
+                                        if (newUrl.isBlank()) return false
+                                        val uri = Uri.parse(newUrl)
+                                        if (httpsEverywhereEnabled && uri.scheme == "http" && !httpOnlyDomains.contains(uri.host.orEmpty())) {
+                                            view?.loadUrl(uri.buildUpon().scheme("https").build().toString())
+                                            return true
+                                        }
+                                        return false
+                                    }
+
+                                    override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): android.webkit.WebResourceResponse? {
+                                        val requestUrl = request?.url?.toString().orEmpty()
+                                        val lower = requestUrl.lowercase()
+                                        val contentTypeHint = request?.requestHeaders?.entries?.firstOrNull { it.key.equals("Accept", true) }?.value?.lowercase().orEmpty()
+                                        if (videoSnifferEnabled && (videoExtensions.any { lower.contains(it) } || contentTypeHint.contains("video/"))) {
+                                            videoSnifferViewModel.onVideoDetected(requestUrl, type = lower.substringAfterLast('.', "video"))
+                                        }
+                                        if (adBlockEnabled) return AdBlocker.interceptIfBlocked(requestUrl)
+                                        return null
+                                    }
+                                }
+                                webViewRef = this
                             }
-
-                            webViewClient = object : WebViewClient() {
-                                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                    super.onPageStarted(view, url, favicon)
-                                    isLoading = true
-                                    url?.let {
-                                        TabManager.updateActiveTab(url = it)
-                                        addressBarText = it
-                                        isSecure = it.startsWith("https://")
-                                    }
-                                    scope.launch {
-                                        val host = runCatching { Uri.parse(url).host.orEmpty() }.getOrDefault("")
-                                        jsAllowed = AppPreferences.isJavaScriptAllowed(context, host)
-                                        view?.settings?.javaScriptEnabled = jsAllowed
-                                    }
-                                }
-
-                                override fun onPageFinished(view: WebView?, url: String?) {
-                                    super.onPageFinished(view, url)
-                                    isLoading = false
-                                    loadProgress = 1f
-                                    injectVideoSnifferScript(view)
-                                    url?.let {
-                                        val title = runCatching { Uri.parse(it).host.orEmpty() }.getOrDefault(it).removePrefix("www.").ifBlank { it }
-                                        recentHistory.value = (listOf(HistorySite(title, it)) + recentHistory.value).distinctBy { site -> site.url }.take(5)
-                                    }
-                                }
-
-                                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                                    val newUrl = request?.url?.toString().orEmpty()
-                                    if (newUrl.isBlank()) return false
-                                    val uri = Uri.parse(newUrl)
-                                    if (httpsEverywhereEnabled && uri.scheme == "http" && !httpOnlyDomains.contains(uri.host.orEmpty())) {
-                                        view?.loadUrl(uri.buildUpon().scheme("https").build().toString())
-                                        return true
-                                    }
-                                    TabManager.updateActiveTab(url = newUrl)
-                                    addressBarText = newUrl
-                                    isSecure = newUrl.startsWith("https://")
-                                    return false
-                                }
-
-                                override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): android.webkit.WebResourceResponse? {
-                                    val requestUrl = request?.url?.toString().orEmpty()
-                                    val lower = requestUrl.lowercase()
-                                    val contentTypeHint = request?.requestHeaders?.entries?.firstOrNull { it.key.equals("Accept", true) }?.value?.lowercase().orEmpty()
-                                    if (videoSnifferEnabled && (videoExtensions.any { lower.contains(it) } || contentTypeHint.contains("video/"))) {
-                                        videoSnifferViewModel.onVideoDetected(requestUrl, type = lower.substringAfterLast('.', "video"))
-                                    }
-                                    if (adBlockEnabled) return AdBlocker.interceptIfBlocked(requestUrl)
-                                    return null
-                                }
+                        }
+                        },
+                        update = { webView ->
+                            webViewRef = webView
+                            if (attachedTabId != activeTabId) {
+                                val old = Bundle(); webView.saveState(old); TabManager.saveState(attachedTabId, old)
+                                attachedTabId = activeTabId
+                                val restored = TabManager.getSavedState(activeTabId)
+                                if (restored != null) webView.restoreState(restored)
+                                else if (activeTab.url.isNotBlank()) webView.loadUrl(activeTab.url)
+                            } else if (activeTab.url.isNotBlank() && activeTab.url != webView.url && !isLoading) {
+                                webView.loadUrl(activeTab.url)
                             }
-                            webViewRef = this
+                            val desiredUserAgent = if (activeTab.isDesktopMode) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
+                            if (webView.settings.useWideViewPort != activeTab.isDesktopMode) webView.settings.useWideViewPort = activeTab.isDesktopMode
+                            if (webView.settings.loadWithOverviewMode != activeTab.isDesktopMode) webView.settings.loadWithOverviewMode = activeTab.isDesktopMode
+                            if (webView.settings.userAgentString != desiredUserAgent) webView.settings.userAgentString = desiredUserAgent
                         }
-                    },
-                    update = { webView ->
-                        webViewRef = webView
-                        if (attachedTabId != activeTabId) {
-                            val old = Bundle(); webView.saveState(old); TabManager.saveState(attachedTabId, old)
-                            attachedTabId = activeTabId
-                            val restored = TabManager.getSavedState(activeTabId)
-                            if (restored != null) webView.restoreState(restored)
-                            else if (activeTab.url.isNotBlank()) webView.loadUrl(activeTab.url)
-                        } else if (activeTab.url.isNotBlank() && activeTab.url != webView.url) {
-                            webView.loadUrl(activeTab.url)
-                        }
-                        val desiredUserAgent = if (activeTab.isDesktopMode) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
-                        if (webView.settings.useWideViewPort != activeTab.isDesktopMode) webView.settings.useWideViewPort = activeTab.isDesktopMode
-                        if (webView.settings.loadWithOverviewMode != activeTab.isDesktopMode) webView.settings.loadWithOverviewMode = activeTab.isDesktopMode
-                        if (webView.settings.userAgentString != desiredUserAgent) webView.settings.userAgentString = desiredUserAgent
-                    }
-                )
+                    )
+                }
             }
         }
 
@@ -435,7 +442,8 @@ private fun injectVideoSnifferScript(view: WebView?) {
     view?.evaluateJavascript(script, null)
 }
 
-private const val MOBILE_USER_AGENT = "Webvault/1.0 Mobile"
+private const val MOBILE_USER_AGENT =
+    "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36"
 private const val DESKTOP_USER_AGENT =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
