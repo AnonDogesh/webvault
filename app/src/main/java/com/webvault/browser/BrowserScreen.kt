@@ -119,10 +119,8 @@ data class HistorySite(val title: String, val url: String)
 @Composable
 fun BrowserScreen(
     modifier: Modifier = Modifier,
-    forceHomePage: Boolean = false,
-    pendingNavigationUrl: String? = null,
-    onNavigationHandled: () -> Unit = {},
-    onNavigateToBrowser: (String) -> Unit = {},
+    showHomeOverlay: Boolean = false,
+    onNavigateToBrowser: () -> Unit = {},
     videoSnifferViewModel: VideoSnifferViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -142,7 +140,6 @@ fun BrowserScreen(
     var showJsMenu by remember { mutableStateOf(false) }
     var showBrowserMenu by remember { mutableStateOf(false) }
     var showSearchEngineMenu by remember { mutableStateOf(false) }
-    var launchNavigationUrl by remember { mutableStateOf<String?>(null) }
     var jsAllowed by remember { mutableStateOf(true) }
     var showVideoListSheet by remember { mutableStateOf(false) }
     val blockedCount by AdBlocker.blockedCount.collectAsState()
@@ -162,25 +159,12 @@ fun BrowserScreen(
         if (target.isNotBlank()) {
             addressBarText = target
             TabManager.updateActiveTab(url = target)
-            onNavigateToBrowser(target)
-        }
-    }
-
-    LaunchedEffect(pendingNavigationUrl) {
-        if (!pendingNavigationUrl.isNullOrBlank()) {
-            launchNavigationUrl = pendingNavigationUrl
-            addressBarText = pendingNavigationUrl
             isLoading = true
             loadProgress = 0.05f
+            onNavigateToBrowser()
         }
     }
 
-    LaunchedEffect(activeTabId, activeTab.url, launchNavigationUrl) {
-        if (!launchNavigationUrl.isNullOrBlank() && activeTab.url.isNotBlank()) {
-            launchNavigationUrl = null
-            onNavigationHandled()
-        }
-    }
 
     LaunchedEffect(activeTabId, defaultSearchEngineId) {
         if (activeTab.url.isBlank() && activeTab.searchEngineId != defaultSearchEngineId) {
@@ -188,12 +172,49 @@ fun BrowserScreen(
         }
     }
 
-    val showHomePage = forceHomePage || (activeTab.url.isBlank() && launchNavigationUrl.isNullOrBlank())
+    val showHomePage = showHomeOverlay || activeTab.url.isBlank()
 
     BackHandler(enabled = webViewRef?.canGoBack() == true) { webViewRef?.goBack() }
 
     Box(modifier = modifier.fillMaxSize().background(AppBackground)) {
         Column(modifier = Modifier.fillMaxSize()) {
+            AddressBar(
+                url = addressBarText,
+                isSecure = isSecure,
+                tabCount = tabs.size,
+                isLoading = isLoading,
+                blockedCount = blockedCount,
+                jsAllowed = jsAllowed,
+                searchEngineLabel = searchEngineById(activeTab.searchEngineId).label,
+                searchEngineMenuExpanded = showSearchEngineMenu,
+                onDismissSearchEngineMenu = { showSearchEngineMenu = false },
+                onSelectSearchEngine = { engine ->
+                    TabManager.updateActiveTab(searchEngineId = engine.id)
+                    showSearchEngineMenu = false
+                },
+                onUrlChange = { addressBarText = it },
+                onUrlSubmit = { onSubmitUrl(addressBarText) },
+                onRefreshOrStop = { webViewRef?.let { if (isLoading) it.stopLoading() else it.reload() } },
+                onTabsClick = { showTabsSheet = true },
+                onSearchEngineClick = { showSearchEngineMenu = true },
+                onLockLongPress = { showJsMenu = true },
+                onSetJavaScriptAllowed = { allowed ->
+                    scope.launch {
+                        val host = runCatching { Uri.parse(addressBarText).host.orEmpty() }.getOrDefault("")
+                        AppPreferences.setJavaScriptAllowed(context, host, allowed)
+                        jsAllowed = allowed
+                        webViewRef?.settings?.javaScriptEnabled = allowed
+                        webViewRef?.reload()
+                    }
+                },
+                showJsMenu = showJsMenu,
+                onDismissJsMenu = { showJsMenu = false }
+            )
+
+            if (isLoading) {
+                LinearProgressIndicator(progress = { loadProgress.coerceIn(0f, 1f) }, color = PrimaryBlue, modifier = Modifier.fillMaxWidth())
+            }
+
             if (showHomePage) {
                 HomeScreen(
                     searchSessionKey = activeTabId,
@@ -210,43 +231,6 @@ fun BrowserScreen(
                     onSpeedDialClick = onSubmitUrl
                 )
             } else {
-                AddressBar(
-                    url = addressBarText,
-                    isSecure = isSecure,
-                    tabCount = tabs.size,
-                    isLoading = isLoading,
-                    blockedCount = blockedCount,
-                    jsAllowed = jsAllowed,
-                    searchEngineLabel = searchEngineById(activeTab.searchEngineId).label,
-                    searchEngineMenuExpanded = showSearchEngineMenu,
-                    onDismissSearchEngineMenu = { showSearchEngineMenu = false },
-                    onSelectSearchEngine = { engine ->
-                        TabManager.updateActiveTab(searchEngineId = engine.id)
-                        showSearchEngineMenu = false
-                    },
-                    onUrlChange = { addressBarText = it },
-                    onUrlSubmit = { onSubmitUrl(addressBarText) },
-                    onRefreshOrStop = { webViewRef?.let { if (isLoading) it.stopLoading() else it.reload() } },
-                    onTabsClick = { showTabsSheet = true },
-                    onSearchEngineClick = { showSearchEngineMenu = true },
-                    onLockLongPress = { showJsMenu = true },
-                    onSetJavaScriptAllowed = { allowed ->
-                        scope.launch {
-                            val host = runCatching { Uri.parse(addressBarText).host.orEmpty() }.getOrDefault("")
-                            AppPreferences.setJavaScriptAllowed(context, host, allowed)
-                            jsAllowed = allowed
-                            webViewRef?.settings?.javaScriptEnabled = allowed
-                            webViewRef?.reload()
-                        }
-                    },
-                    showJsMenu = showJsMenu,
-                    onDismissJsMenu = { showJsMenu = false }
-                )
-
-                if (isLoading) {
-                    LinearProgressIndicator(progress = { loadProgress.coerceIn(0f, 1f) }, color = PrimaryBlue, modifier = Modifier.fillMaxWidth())
-                }
-
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
@@ -326,10 +310,7 @@ fun BrowserScreen(
                             attachedTabId = activeTabId
                             val restored = TabManager.getSavedState(activeTabId)
                             if (restored != null) webView.restoreState(restored)
-                            else if (!launchNavigationUrl.isNullOrBlank()) webView.loadUrl(launchNavigationUrl!!)
                             else if (activeTab.url.isNotBlank()) webView.loadUrl(activeTab.url)
-                        } else if (!launchNavigationUrl.isNullOrBlank() && launchNavigationUrl != webView.url) {
-                            webView.loadUrl(launchNavigationUrl!!)
                         } else if (activeTab.url.isNotBlank() && activeTab.url != webView.url) {
                             webView.loadUrl(activeTab.url)
                         }

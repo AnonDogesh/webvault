@@ -46,7 +46,6 @@ class MainActivity : FragmentActivity() {
 @Composable
 fun WebvaultApp() {
     var selectedItem by remember { mutableStateOf(BottomNavItem.Home) }
-    var pendingBrowserUrl by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -72,18 +71,10 @@ fun WebvaultApp() {
         }
     ) { innerPadding ->
         when (selectedItem) {
-            BottomNavItem.Home -> BrowserScreen(
+            BottomNavItem.Home, BottomNavItem.Browser -> BrowserScreen(
                 modifier = Modifier.padding(innerPadding),
-                forceHomePage = true,
-                onNavigateToBrowser = { url ->
-                    pendingBrowserUrl = url
-                    selectedItem = BottomNavItem.Browser
-                }
-            )
-            BottomNavItem.Browser -> BrowserScreen(
-                modifier = Modifier.padding(innerPadding),
-                pendingNavigationUrl = pendingBrowserUrl,
-                onNavigationHandled = { pendingBrowserUrl = null }
+                showHomeOverlay = selectedItem == BottomNavItem.Home,
+                onNavigateToBrowser = { selectedItem = BottomNavItem.Browser }
             )
             BottomNavItem.Downloads -> DownloadsScreen(Modifier.padding(innerPadding))
             BottomNavItem.Vault -> VaultScreen(Modifier.padding(innerPadding))
