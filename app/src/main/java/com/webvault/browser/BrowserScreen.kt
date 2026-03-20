@@ -44,7 +44,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Button
@@ -220,17 +219,7 @@ fun BrowserScreen(
 
             if (showHomePage) {
                 HomeScreen(
-                    searchSessionKey = activeTabId,
                     recentHistory = recentHistory.value,
-                    selectedSearchEngineLabel = searchEngineById(activeTab.searchEngineId).label,
-                    searchEngineMenuExpanded = showSearchEngineMenu,
-                    onDismissSearchEngineMenu = { showSearchEngineMenu = false },
-                    onSelectSearchEngine = { engine ->
-                        TabManager.updateActiveTab(searchEngineId = engine.id)
-                        showSearchEngineMenu = false
-                    },
-                    onSearchEngineClick = { showSearchEngineMenu = true },
-                    onSubmit = onSubmitUrl,
                     onSpeedDialClick = onSubmitUrl
                 )
             } else {
@@ -605,40 +594,12 @@ private fun TabSheet(tabs: List<Tab>, activeTabId: Int, onSelectTab: (Int) -> Un
 
 @Composable
 fun HomeScreen(
-    searchSessionKey: Int,
     recentHistory: List<HistorySite>,
-    selectedSearchEngineLabel: String,
-    searchEngineMenuExpanded: Boolean,
-    onDismissSearchEngineMenu: () -> Unit,
-    onSelectSearchEngine: (SearchEngine) -> Unit,
-    onSearchEngineClick: () -> Unit,
-    onSubmit: (String) -> Unit,
     onSpeedDialClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var searchInput by rememberSaveable(searchSessionKey) { mutableStateOf("") }
-    val focusManager = LocalFocusManager.current
     Column(modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text("Webvault", color = PrimaryBlue, fontSize = 38.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 24.dp, bottom = 48.dp))
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = AppSurface)) {
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Search, contentDescription = null, tint = PrimaryBlue)
-                Spacer(Modifier.width(8.dp))
-                OutlinedTextField(searchInput, onValueChange = { searchInput = it }, modifier = Modifier.weight(1f), placeholder = { Text("Search or enter URL") }, singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus(); onSubmit(searchInput) }), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent))
-                Spacer(Modifier.width(8.dp))
-                Box {
-                    Box(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFFF3F7FF)).clickable(onClick = onSearchEngineClick).padding(horizontal = 10.dp, vertical = 8.dp)) {
-                        Text(selectedSearchEngineLabel, style = MaterialTheme.typography.labelSmall, color = PrimaryBlue)
-                    }
-                    DropdownMenu(expanded = searchEngineMenuExpanded, onDismissRequest = onDismissSearchEngineMenu) {
-                        allSearchEngines().forEach { engine ->
-                            DropdownMenuItem(text = { Text(engine.label) }, onClick = { onSelectSearchEngine(engine) })
-                        }
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(20.dp))
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             defaultSpeedDials.chunked(4).forEach { rowSites ->
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -658,7 +619,7 @@ fun HomeScreen(
         Spacer(Modifier.height(8.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
             items(recentHistory.take(5)) { site ->
-                Card(modifier = Modifier.width(132.dp).height(72.dp).clickable { onSubmit(site.url) }, shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = AppSurface)) {
+                Card(modifier = Modifier.width(132.dp).height(72.dp).clickable { onSpeedDialClick(site.url) }, shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = AppSurface)) {
                     Column(Modifier.padding(10.dp)) {
                         Text(site.title, maxLines = 1, style = MaterialTheme.typography.bodyMedium)
                         Spacer(Modifier.height(4.dp))
