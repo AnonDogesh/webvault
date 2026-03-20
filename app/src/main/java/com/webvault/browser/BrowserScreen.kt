@@ -62,6 +62,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -119,7 +120,9 @@ data class HistorySite(val title: String, val url: String)
 fun BrowserScreen(
     modifier: Modifier = Modifier,
     forceHomePage: Boolean = false,
-    onNavigateToBrowser: () -> Unit = {},
+    pendingNavigationUrl: String? = null,
+    onNavigationHandled: () -> Unit = {},
+    onNavigateToBrowser: (String) -> Unit = {},
     videoSnifferViewModel: VideoSnifferViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -137,6 +140,7 @@ fun BrowserScreen(
     var attachedTabId by remember { mutableStateOf(activeTabId) }
     var showTabsSheet by remember { mutableStateOf(false) }
     var showJsMenu by remember { mutableStateOf(false) }
+    var showBrowserMenu by remember { mutableStateOf(false) }
     var jsAllowed by remember { mutableStateOf(true) }
     var showVideoListSheet by remember { mutableStateOf(false) }
     val blockedCount by AdBlocker.blockedCount.collectAsState()
@@ -155,11 +159,20 @@ fun BrowserScreen(
         if (target.isNotBlank()) {
             addressBarText = target
             TabManager.updateActiveTab(url = target)
-            onNavigateToBrowser()
+            onNavigateToBrowser(target)
         }
     }
 
-    val showHomePage = forceHomePage || activeTab.url.isBlank()
+    LaunchedEffect(pendingNavigationUrl) {
+        if (!pendingNavigationUrl.isNullOrBlank()) {
+            addressBarText = pendingNavigationUrl
+            isLoading = true
+            loadProgress = 0.05f
+            onNavigationHandled()
+        }
+    }
+
+    val showHomePage = forceHomePage || (activeTab.url.isBlank() && pendingNavigationUrl.isNullOrBlank())
 
     BackHandler(enabled = webViewRef?.canGoBack() == true) { webViewRef?.goBack() }
 
@@ -179,6 +192,7 @@ fun BrowserScreen(
                     isLoading = isLoading,
                     blockedCount = blockedCount,
                     jsAllowed = jsAllowed,
+                    isDesktopMode = activeTab.isDesktopMode,
                     onUrlChange = { addressBarText = it },
                     onUrlSubmit = { onSubmitUrl(addressBarText) },
                     onRefreshOrStop = { webViewRef?.let { if (isLoading) it.stopLoading() else it.reload() } },
@@ -207,7 +221,9 @@ fun BrowserScreen(
                         WebView(ctx).apply {
                             settings.domStorageEnabled = true
                             settings.javaScriptEnabled = true
-                            settings.userAgentString = "Webvault/1.0 Mobile"
+                            settings.useWideViewPort = activeTab.isDesktopMode
+                            settings.loadWithOverviewMode = activeTab.isDesktopMode
+                            settings.userAgentString = if (activeTab.isDesktopMode) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
                             addJavascriptInterface(bridge, "Android")
 
                             webChromeClient = object : WebChromeClient() {
@@ -281,8 +297,46 @@ fun BrowserScreen(
                         } else if (activeTab.url.isNotBlank() && activeTab.url != webView.url) {
                             webView.loadUrl(activeTab.url)
                         }
+                        webView.settings.useWideViewPort = activeTab.isDesktopMode
+                        webView.settings.loadWithOverviewMode = activeTab.isDesktopMode
+                        webView.settings.userAgentString = if (activeTab.isDesktopMode) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
                     }
                 )
+            }
+        }
+
+        if (!showHomePage) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(20.dp)
+            ) {
+                FloatingActionButton(
+                    onClick = { showBrowserMenu = true },
+                    containerColor = PrimaryBlue,
+                    contentColor = Color.White
+                ) {
+                    Text("Menu")
+                }
+                DropdownMenu(expanded = showBrowserMenu, onDismissRequest = { showBrowserMenu = false }) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text("Desktop site", modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = activeTab.isDesktopMode,
+                            onCheckedChange = { enabled ->
+                                TabManager.updateActiveTab(desktopMode = enabled)
+                                webViewRef?.settings?.useWideViewPort = enabled
+                                webViewRef?.settings?.loadWithOverviewMode = enabled
+                                webViewRef?.settings?.userAgentString = if (enabled) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
+                                webViewRef?.reload()
+                            }
+                        )
+                    }
+                }
             }
         }
 
@@ -361,6 +415,10 @@ private fun injectVideoSnifferScript(view: WebView?) {
     """.trimIndent()
     view?.evaluateJavascript(script, null)
 }
+
+private const val MOBILE_USER_AGENT = "Webvault/1.0 Mobile"
+private const val DESKTOP_USER_AGENT =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 private fun enqueueDownload(context: android.content.Context, video: DetectedVideo) {
     val id = UUID.randomUUID().toString()
@@ -447,6 +505,7 @@ private fun AddressBar(
     isLoading: Boolean,
     blockedCount: Int,
     jsAllowed: Boolean,
+    isDesktopMode: Boolean,
     onUrlChange: (String) -> Unit,
     onUrlSubmit: () -> Unit,
     onRefreshOrStop: () -> Unit,
@@ -468,6 +527,10 @@ private fun AddressBar(
         OutlinedTextField(url, onUrlChange, modifier = Modifier.weight(1f), placeholder = { Text("Search or enter URL") }, singleLine = true, shape = RoundedCornerShape(22.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = PrimaryBlue, unfocusedBorderColor = Color.LightGray), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go), keyboardActions = KeyboardActions(onGo = { focusManager.clearFocus(); onUrlSubmit() }))
         Spacer(Modifier.width(8.dp))
         Box(Modifier.clip(CircleShape).background(PrimaryBlue).clickable(onClick = onTabsClick).padding(horizontal = 10.dp, vertical = 6.dp)) { Text(tabCount.toString(), color = Color.White, style = MaterialTheme.typography.labelMedium) }
+        Spacer(Modifier.width(6.dp))
+        Box(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFFF3F7FF)).padding(horizontal = 8.dp, vertical = 5.dp)) {
+            Text(if (isDesktopMode) "Desktop" else "Mobile", style = MaterialTheme.typography.labelSmall, color = PrimaryBlue)
+        }
         Spacer(Modifier.width(6.dp))
         Box(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFFE3F2FD)).padding(horizontal = 8.dp, vertical = 5.dp)) { Text("Blocked: $blockedCount", style = MaterialTheme.typography.labelSmall, color = PrimaryBlue) }
         Spacer(Modifier.width(8.dp))

@@ -10,7 +10,8 @@ data class Tab(
     val id: Int,
     val url: String,
     val title: String,
-    val faviconBitmap: Bitmap? = null
+    val faviconBitmap: Bitmap? = null,
+    val isDesktopMode: Boolean = false
 )
 
 object TabManager {
@@ -63,7 +64,8 @@ object TabManager {
     fun updateActiveTab(
         url: String? = null,
         title: String? = null,
-        favicon: Bitmap? = null
+        favicon: Bitmap? = null,
+        desktopMode: Boolean? = null
     ) {
         val activeId = _activeTabId.value
         _tabs.update { tabs ->
@@ -72,7 +74,8 @@ object TabManager {
                     tab.copy(
                         url = url ?: tab.url,
                         title = title ?: tab.title,
-                        faviconBitmap = favicon ?: tab.faviconBitmap
+                        faviconBitmap = favicon ?: tab.faviconBitmap,
+                        isDesktopMode = desktopMode ?: tab.isDesktopMode
                     )
                 } else tab
             }

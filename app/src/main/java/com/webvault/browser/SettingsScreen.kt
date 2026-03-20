@@ -69,7 +69,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         SettingsHeader()
         Spacer(Modifier.height(18.dp))
         AppInfoCard(onClick = {
-            Toast.makeText(context, "AxBrowser Pro Version 1.0.0", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Webvault Version 1.0.0", Toast.LENGTH_SHORT).show()
         })
 
         Spacer(Modifier.height(12.dp))
@@ -198,7 +198,7 @@ private fun AppInfoCard(onClick: () -> Unit) {
             }
             Spacer(Modifier.size(12.dp))
             Column(Modifier.weight(1f)) {
-                Text("AxBrowser Pro", fontWeight = FontWeight.SemiBold)
+                Text("Webvault", fontWeight = FontWeight.SemiBold)
                 Text("Version 1.0.0", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
             }
             Icon(

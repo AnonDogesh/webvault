@@ -6,7 +6,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
@@ -47,6 +47,7 @@ class MainActivity : FragmentActivity() {
 @Composable
 fun WebvaultApp() {
     var selectedItem by remember { mutableStateOf(BottomNavItem.Home) }
+    var pendingBrowserUrl by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -61,7 +62,7 @@ fun WebvaultApp() {
                                 imageVector = when (item) {
                                     BottomNavItem.Home -> Icons.Default.Home
                                     BottomNavItem.Browser -> Icons.Default.Search
-                                    BottomNavItem.Downloads -> Icons.Default.Refresh
+                                    BottomNavItem.Downloads -> Icons.Default.ArrowDownward
                                     BottomNavItem.Vault -> Icons.Default.Lock
                                     BottomNavItem.Settings -> Icons.Default.Settings
                                 },
@@ -78,9 +79,16 @@ fun WebvaultApp() {
             BottomNavItem.Home -> BrowserScreen(
                 modifier = Modifier.padding(innerPadding),
                 forceHomePage = true,
-                onNavigateToBrowser = { selectedItem = BottomNavItem.Browser }
+                onNavigateToBrowser = { url ->
+                    pendingBrowserUrl = url
+                    selectedItem = BottomNavItem.Browser
+                }
             )
-            BottomNavItem.Browser -> BrowserScreen(Modifier.padding(innerPadding))
+            BottomNavItem.Browser -> BrowserScreen(
+                modifier = Modifier.padding(innerPadding),
+                pendingNavigationUrl = pendingBrowserUrl,
+                onNavigationHandled = { pendingBrowserUrl = null }
+            )
             BottomNavItem.Downloads -> DownloadsScreen(Modifier.padding(innerPadding))
             BottomNavItem.Vault -> VaultScreen(Modifier.padding(innerPadding))
             BottomNavItem.Settings -> SettingsScreen(Modifier.padding(innerPadding))
