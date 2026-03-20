@@ -6,7 +6,6 @@ import androidx.fragment.app.FragmentActivity
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
@@ -58,16 +57,13 @@ fun WebvaultApp() {
                         selected = selectedItem == item,
                         onClick = { selectedItem = item },
                         icon = {
-                            Icon(
-                                imageVector = when (item) {
-                                    BottomNavItem.Home -> Icons.Default.Home
-                                    BottomNavItem.Browser -> Icons.Default.Search
-                                    BottomNavItem.Downloads -> Icons.Default.ArrowDownward
-                                    BottomNavItem.Vault -> Icons.Default.Lock
-                                    BottomNavItem.Settings -> Icons.Default.Settings
-                                },
-                                contentDescription = item.label
-                            )
+                            when (item) {
+                                BottomNavItem.Home -> Icon(Icons.Default.Home, contentDescription = item.label)
+                                BottomNavItem.Browser -> Icon(Icons.Default.Search, contentDescription = item.label)
+                                BottomNavItem.Downloads -> Text("↓")
+                                BottomNavItem.Vault -> Icon(Icons.Default.Lock, contentDescription = item.label)
+                                BottomNavItem.Settings -> Icon(Icons.Default.Settings, contentDescription = item.label)
+                            }
                         },
                         label = { Text(item.label) }
                     )
