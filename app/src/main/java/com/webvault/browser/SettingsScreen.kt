@@ -15,17 +15,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -90,7 +88,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             SettingsToggleRow(
                 title = "HTTPS Everywhere",
                 subtitle = "Force secure connections",
-                icon = { SettingsRowIcon(Icons.Default.Shield) },
+                icon = { SettingsRowIcon(Icons.Default.Lock) },
                 checked = httpsEverywhereEnabled,
                 onCheckedChange = { enabled ->
                     scope.launch { AppPreferences.setHttpsEverywhereEnabled(context, enabled) }
@@ -117,7 +115,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             SettingsToggleRow(
                 title = "Video sniffer",
                 subtitle = "Detect videos on pages",
-                icon = { SettingsRowIcon(Icons.Default.Download) },
+                icon = { SettingsRowIcon(Icons.Default.PlayArrow) },
                 checked = videoSnifferEnabled,
                 onCheckedChange = { enabled ->
                     scope.launch { AppPreferences.setVideoSnifferEnabled(context, enabled) }
@@ -127,7 +125,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             SettingsActionRow(
                 title = "Download quality",
                 subtitle = downloadQuality,
-                icon = { SettingsRowIcon(Icons.Default.Videocam) },
+                icon = { SettingsRowIcon(Icons.Default.Refresh) },
                 onClick = {
                     scope.launch {
                         val nextQuality = if (downloadQuality == "Prefer 1080p") "Prefer 720p" else "Prefer 1080p"
@@ -154,7 +152,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             SettingsActionRow(
                 title = "Change PIN",
                 subtitle = "4-digit passcode",
-                icon = { SettingsRowIcon(Icons.Default.Security) },
+                icon = { SettingsRowIcon(Icons.Default.CheckCircle) },
                 onClick = {
                     Toast.makeText(context, "Open Vault to change PIN", Toast.LENGTH_SHORT).show()
                 }
