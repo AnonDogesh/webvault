@@ -26,6 +26,8 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -33,6 +35,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,6 +63,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     val biometricLockEnabled by AppPreferences.biometricLockEnabledFlow(context).collectAsState(initial = true)
     val defaultSearchEngineId by AppPreferences.defaultSearchEngineFlow(context).collectAsState(initial = defaultSearchEngine().id)
     val downloadQuality by AppPreferences.downloadQualityFlow(context).collectAsState(initial = "Prefer 1080p")
+    var showDefaultEngineMenu by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -95,17 +100,21 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 }
             )
             SettingsDivider()
-            SettingsActionRow(
+            SettingsDropdownRow(
                 title = "Default search engine",
                 subtitle = searchEngineById(defaultSearchEngineId).label,
                 icon = { SettingsRowIcon(Icons.Default.Home) },
-                onClick = {
-                    scope.launch {
-                        val engines = allSearchEngines()
-                        val currentIndex = engines.indexOfFirst { it.id == defaultSearchEngineId }.coerceAtLeast(0)
-                        val nextEngine = engines[(currentIndex + 1) % engines.size]
-                        AppPreferences.setDefaultSearchEngine(context, nextEngine.id)
-                        Toast.makeText(context, "Default search engine: ${nextEngine.label}", Toast.LENGTH_SHORT).show()
+                expanded = showDefaultEngineMenu,
+                onExpandedChange = { showDefaultEngineMenu = it },
+                menuContent = {
+                    allSearchEngines().forEach { engine ->
+                        DropdownMenuItem(
+                            text = { Text(engine.label) },
+                            onClick = {
+                                scope.launch { AppPreferences.setDefaultSearchEngine(context, engine.id) }
+                                showDefaultEngineMenu = false
+                            }
+                        )
                     }
                 }
             )
@@ -284,6 +293,28 @@ private fun SettingsActionRow(
             contentDescription = title,
             tint = Color(0xFFB7B7B7)
         )
+    }
+}
+
+@Composable
+private fun SettingsDropdownRow(
+    title: String,
+    subtitle: String,
+    icon: @Composable () -> Unit,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    menuContent: @Composable ColumnScope.() -> Unit
+) {
+    Box {
+        SettingsActionRow(
+            title = title,
+            subtitle = subtitle,
+            icon = icon,
+            onClick = { onExpandedChange(true) }
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
+            Column(content = menuContent)
+        }
     }
 }
 

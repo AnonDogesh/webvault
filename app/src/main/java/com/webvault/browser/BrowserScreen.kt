@@ -142,6 +142,7 @@ fun BrowserScreen(
     var showJsMenu by remember { mutableStateOf(false) }
     var showBrowserMenu by remember { mutableStateOf(false) }
     var showSearchEngineMenu by remember { mutableStateOf(false) }
+    var launchNavigationUrl by remember { mutableStateOf<String?>(null) }
     var jsAllowed by remember { mutableStateOf(true) }
     var showVideoListSheet by remember { mutableStateOf(false) }
     val blockedCount by AdBlocker.blockedCount.collectAsState()
@@ -167,9 +168,16 @@ fun BrowserScreen(
 
     LaunchedEffect(pendingNavigationUrl) {
         if (!pendingNavigationUrl.isNullOrBlank()) {
+            launchNavigationUrl = pendingNavigationUrl
             addressBarText = pendingNavigationUrl
             isLoading = true
             loadProgress = 0.05f
+        }
+    }
+
+    LaunchedEffect(activeTabId, activeTab.url, launchNavigationUrl) {
+        if (!launchNavigationUrl.isNullOrBlank() && activeTab.url.isNotBlank()) {
+            launchNavigationUrl = null
             onNavigationHandled()
         }
     }
@@ -180,7 +188,7 @@ fun BrowserScreen(
         }
     }
 
-    val showHomePage = forceHomePage || (activeTab.url.isBlank() && pendingNavigationUrl.isNullOrBlank())
+    val showHomePage = forceHomePage || (activeTab.url.isBlank() && launchNavigationUrl.isNullOrBlank())
 
     BackHandler(enabled = webViewRef?.canGoBack() == true) { webViewRef?.goBack() }
 
@@ -191,6 +199,12 @@ fun BrowserScreen(
                     searchSessionKey = activeTabId,
                     recentHistory = recentHistory.value,
                     selectedSearchEngineLabel = searchEngineById(activeTab.searchEngineId).label,
+                    searchEngineMenuExpanded = showSearchEngineMenu,
+                    onDismissSearchEngineMenu = { showSearchEngineMenu = false },
+                    onSelectSearchEngine = { engine ->
+                        TabManager.updateActiveTab(searchEngineId = engine.id)
+                        showSearchEngineMenu = false
+                    },
                     onSearchEngineClick = { showSearchEngineMenu = true },
                     onSubmit = onSubmitUrl,
                     onSpeedDialClick = onSubmitUrl
@@ -204,6 +218,12 @@ fun BrowserScreen(
                     blockedCount = blockedCount,
                     jsAllowed = jsAllowed,
                     searchEngineLabel = searchEngineById(activeTab.searchEngineId).label,
+                    searchEngineMenuExpanded = showSearchEngineMenu,
+                    onDismissSearchEngineMenu = { showSearchEngineMenu = false },
+                    onSelectSearchEngine = { engine ->
+                        TabManager.updateActiveTab(searchEngineId = engine.id)
+                        showSearchEngineMenu = false
+                    },
                     onUrlChange = { addressBarText = it },
                     onUrlSubmit = { onSubmitUrl(addressBarText) },
                     onRefreshOrStop = { webViewRef?.let { if (isLoading) it.stopLoading() else it.reload() } },
@@ -305,13 +325,18 @@ fun BrowserScreen(
                             val old = Bundle(); webView.saveState(old); TabManager.saveState(attachedTabId, old)
                             attachedTabId = activeTabId
                             val restored = TabManager.getSavedState(activeTabId)
-                            if (restored != null) webView.restoreState(restored) else if (activeTab.url.isNotBlank()) webView.loadUrl(activeTab.url)
+                            if (restored != null) webView.restoreState(restored)
+                            else if (!launchNavigationUrl.isNullOrBlank()) webView.loadUrl(launchNavigationUrl!!)
+                            else if (activeTab.url.isNotBlank()) webView.loadUrl(activeTab.url)
+                        } else if (!launchNavigationUrl.isNullOrBlank() && launchNavigationUrl != webView.url) {
+                            webView.loadUrl(launchNavigationUrl!!)
                         } else if (activeTab.url.isNotBlank() && activeTab.url != webView.url) {
                             webView.loadUrl(activeTab.url)
                         }
-                        webView.settings.useWideViewPort = activeTab.isDesktopMode
-                        webView.settings.loadWithOverviewMode = activeTab.isDesktopMode
-                        webView.settings.userAgentString = if (activeTab.isDesktopMode) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
+                        val desiredUserAgent = if (activeTab.isDesktopMode) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
+                        if (webView.settings.useWideViewPort != activeTab.isDesktopMode) webView.settings.useWideViewPort = activeTab.isDesktopMode
+                        if (webView.settings.loadWithOverviewMode != activeTab.isDesktopMode) webView.settings.loadWithOverviewMode = activeTab.isDesktopMode
+                        if (webView.settings.userAgentString != desiredUserAgent) webView.settings.userAgentString = desiredUserAgent
                     }
                 )
             }
@@ -352,23 +377,6 @@ fun BrowserScreen(
             }
         }
 
-        if (showSearchEngineMenu) {
-            DropdownMenu(
-                expanded = showSearchEngineMenu,
-                onDismissRequest = { showSearchEngineMenu = false },
-                modifier = Modifier.align(Alignment.TopEnd)
-            ) {
-                allSearchEngines().forEach { engine ->
-                    DropdownMenuItem(
-                        text = { Text(engine.label) },
-                        onClick = {
-                            TabManager.updateActiveTab(searchEngineId = engine.id)
-                            showSearchEngineMenu = false
-                        }
-                    )
-                }
-            }
-        }
 
         if (showHomePage) {
             FloatingActionButton(
@@ -536,6 +544,9 @@ private fun AddressBar(
     blockedCount: Int,
     jsAllowed: Boolean,
     searchEngineLabel: String,
+    searchEngineMenuExpanded: Boolean,
+    onDismissSearchEngineMenu: () -> Unit,
+    onSelectSearchEngine: (SearchEngine) -> Unit,
     onUrlChange: (String) -> Unit,
     onUrlSubmit: () -> Unit,
     onRefreshOrStop: () -> Unit,
@@ -559,8 +570,15 @@ private fun AddressBar(
         Spacer(Modifier.width(8.dp))
         Box(Modifier.clip(CircleShape).background(PrimaryBlue).clickable(onClick = onTabsClick).padding(horizontal = 10.dp, vertical = 6.dp)) { Text(tabCount.toString(), color = Color.White, style = MaterialTheme.typography.labelMedium) }
         Spacer(Modifier.width(6.dp))
-        Box(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFFF3F7FF)).clickable(onClick = onSearchEngineClick).padding(horizontal = 8.dp, vertical = 5.dp)) {
-            Text(searchEngineLabel, style = MaterialTheme.typography.labelSmall, color = PrimaryBlue)
+        Box {
+            Box(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFFF3F7FF)).clickable(onClick = onSearchEngineClick).padding(horizontal = 8.dp, vertical = 5.dp)) {
+                Text(searchEngineLabel, style = MaterialTheme.typography.labelSmall, color = PrimaryBlue)
+            }
+            DropdownMenu(expanded = searchEngineMenuExpanded, onDismissRequest = onDismissSearchEngineMenu) {
+                allSearchEngines().forEach { engine ->
+                    DropdownMenuItem(text = { Text(engine.label) }, onClick = { onSelectSearchEngine(engine) })
+                }
+            }
         }
         Spacer(Modifier.width(6.dp))
         Box(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFFE3F2FD)).padding(horizontal = 8.dp, vertical = 5.dp)) { Text("Blocked: $blockedCount", style = MaterialTheme.typography.labelSmall, color = PrimaryBlue) }
@@ -602,6 +620,9 @@ fun HomeScreen(
     searchSessionKey: Int,
     recentHistory: List<HistorySite>,
     selectedSearchEngineLabel: String,
+    searchEngineMenuExpanded: Boolean,
+    onDismissSearchEngineMenu: () -> Unit,
+    onSelectSearchEngine: (SearchEngine) -> Unit,
     onSearchEngineClick: () -> Unit,
     onSubmit: (String) -> Unit,
     onSpeedDialClick: (String) -> Unit,
@@ -617,8 +638,15 @@ fun HomeScreen(
                 Spacer(Modifier.width(8.dp))
                 OutlinedTextField(searchInput, onValueChange = { searchInput = it }, modifier = Modifier.weight(1f), placeholder = { Text("Search or enter URL") }, singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus(); onSubmit(searchInput) }), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent))
                 Spacer(Modifier.width(8.dp))
-                Box(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFFF3F7FF)).clickable(onClick = onSearchEngineClick).padding(horizontal = 10.dp, vertical = 8.dp)) {
-                    Text(selectedSearchEngineLabel, style = MaterialTheme.typography.labelSmall, color = PrimaryBlue)
+                Box {
+                    Box(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFFF3F7FF)).clickable(onClick = onSearchEngineClick).padding(horizontal = 10.dp, vertical = 8.dp)) {
+                        Text(selectedSearchEngineLabel, style = MaterialTheme.typography.labelSmall, color = PrimaryBlue)
+                    }
+                    DropdownMenu(expanded = searchEngineMenuExpanded, onDismissRequest = onDismissSearchEngineMenu) {
+                        allSearchEngines().forEach { engine ->
+                            DropdownMenuItem(text = { Text(engine.label) }, onClick = { onSelectSearchEngine(engine) })
+                        }
+                    }
                 }
             }
         }
