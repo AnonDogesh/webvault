@@ -1,8 +1,8 @@
 package com.webvault.browser
 
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import android.os.Bundle
+import androidx.activity.compose.setContent
+import androidx.fragment.app.FragmentActivity
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -33,7 +33,7 @@ enum class BottomNavItem(val label: String) {
     Settings("Settings")
 }
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
