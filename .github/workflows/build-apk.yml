@@ -20,7 +20,6 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
@@ -41,13 +40,25 @@ jobs:
         env:
           KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
         run: |
-          echo "$KEYSTORE_FILE" | base64 --decode > /tmp/webvault.keystore
+          if [ -z "$KEYSTORE_FILE" ]; then
+            echo "KEYSTORE_FILE secret is empty"
+            exit 1
+          fi
+
+          # KEYSTORE_FILE must be base64 of the raw keystore bytes
+          printf '%s' "$KEYSTORE_FILE" | base64 --decode > /tmp/webvault.keystore
+
+          if [ ! -s /tmp/webvault.keystore ]; then
+            echo "Decoded keystore is empty. Verify KEYSTORE_FILE base64 value."
+            exit 1
+          fi
 
       - name: Sign APK
         env:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEYSTORE_TYPE: ${{ secrets.KEYSTORE_TYPE }}
         run: |
           UNSIGNED_APK="$(find app/build/outputs/apk/release -name '*-unsigned.apk' | head -n 1)"
           SIGNED_APK="app/build/outputs/apk/release/app-release-signed.apk"
@@ -63,8 +74,11 @@ jobs:
             exit 1
           fi
 
+          KS_TYPE="${KEYSTORE_TYPE:-JKS}"
+
           "$APKSIGNER" sign \
             --ks /tmp/webvault.keystore \
+            --ks-type "$KS_TYPE" \
             --ks-key-alias "$KEY_ALIAS" \
             --ks-pass pass:"$STORE_PASSWORD" \
             --key-pass pass:"$KEY_PASSWORD" \

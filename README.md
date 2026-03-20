@@ -12,6 +12,7 @@ Configure the following repository secrets before running release builds:
 - `KEY_ALIAS`: Keystore key alias.
 - `KEY_PASSWORD`: Password for the key alias.
 - `STORE_PASSWORD`: Password for the keystore.
+- `KEYSTORE_TYPE` (optional): Keystore type, usually `JKS` (default) or `PKCS12`.
 
 ### How to create `KEYSTORE_FILE`
 
@@ -22,6 +23,8 @@ base64 -w 0 your-release-key.jks
 ```
 
 Copy the output and save it as the `KEYSTORE_FILE` secret in GitHub.
+
+> Important: The secret must contain only the base64 string of the keystore bytes (no extra text).
 
 ### Workflow behavior
 
