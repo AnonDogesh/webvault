@@ -31,7 +31,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -69,11 +69,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -95,9 +93,7 @@ import androidx.work.WorkManager
 import com.webvault.browser.ui.theme.AppBackground
 import com.webvault.browser.ui.theme.AppSurface
 import com.webvault.browser.ui.theme.PrimaryBlue
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.util.UUID
 
 private val httpOnlyDomains = setOf("neverssl.com", "example.com")
@@ -112,7 +108,6 @@ private val defaultSpeedDials = listOf(
     "Amazon" to "https://www.amazon.com",
     "Gmail" to "https://mail.google.com"
 )
-
 private const val MOBILE_USER_AGENT =
     "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36"
 private const val DESKTOP_USER_AGENT =
@@ -130,68 +125,88 @@ fun BrowserScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
     val tabs by TabManager.tabs.collectAsState()
     val activeTabId by TabManager.activeTabId.collectAsState()
     val activeTab = tabs.firstOrNull { it.id == activeTabId } ?: tabs.first()
-    val blockedCount by AdBlocker.blockedCount.collectAsState()
+
+    var addressBarText by remember(activeTabId) { mutableStateOf(activeTab.pendingUrl.ifBlank { activeTab.url }) }
+    var isSecure by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
+    var loadProgress by remember { mutableFloatStateOf(0f) }
+    var jsAllowed by remember { mutableStateOf(true) }
+    var showTabsSheet by remember { mutableStateOf(false) }
+    var showBrowserMenu by remember { mutableStateOf(false) }
+    var showSearchEngineMenu by remember { mutableStateOf(false) }
+    var showJsMenu by remember { mutableStateOf(false) }
+    var showVideoListSheet by remember { mutableStateOf(false) }
+    val recentHistory = remember { mutableStateOf<List<HistorySite>>(emptyList()) }
+
     val adBlockEnabled by AppPreferences.adBlockEnabledFlow(context).collectAsState(initial = true)
     val httpsEverywhereEnabled by AppPreferences.httpsEverywhereEnabledFlow(context).collectAsState(initial = true)
     val videoSnifferEnabled by AppPreferences.videoSnifferEnabledFlow(context).collectAsState(initial = true)
     val defaultSearchEngineId by AppPreferences.defaultSearchEngineFlow(context).collectAsState(initial = defaultSearchEngine().id)
+    val blockedCount by AdBlocker.blockedCount.collectAsState()
     val detectedVideos by videoSnifferViewModel.videos.collectAsState()
 
-    var addressBarText by rememberSaveable(activeTabId) { mutableStateOf(activeTab.pendingUrl.ifBlank { activeTab.url }) }
-    var isSecure by remember(activeTabId) { mutableStateOf(activeTab.url.startsWith("https://")) }
-    var isLoading by remember(activeTabId) { mutableStateOf(false) }
-    var loadProgress by remember(activeTabId) { mutableFloatStateOf(0f) }
-    var webViewRef by remember { mutableStateOf<WebView?>(null) }
-    var attachedTabId by remember { mutableStateOf(activeTabId) }
-    var showTabsSheet by remember { mutableStateOf(false) }
-    var showSearchEngineMenu by remember { mutableStateOf(false) }
-    var showJsMenu by remember { mutableStateOf(false) }
-    var showBrowserMenu by remember { mutableStateOf(false) }
-    var showVideoListSheet by remember { mutableStateOf(false) }
-    var jsAllowed by remember { mutableStateOf(true) }
-    val recentHistory = remember { mutableStateListOf<HistorySite>() }
-
     val bridge = remember(videoSnifferViewModel) { VideoSnifferBridge(videoSnifferViewModel) }
+
+    val webViewRef = remember { mutableStateOf<WebView?>(null) }
+    var attachedTabId by remember { mutableStateOf(activeTabId) }
 
     LaunchedEffect(Unit) {
         AdBlocker.initialize(context)
     }
 
-    LaunchedEffect(activeTabId, activeTab.url, activeTab.pendingUrl) {
-        addressBarText = activeTab.pendingUrl.ifBlank { activeTab.url }
-        isSecure = activeTab.url.startsWith("https://")
+    LaunchedEffect(activeTabId) {
+        val tab = TabManager.tabs.value.firstOrNull { it.id == activeTabId }
+        addressBarText = tab?.pendingUrl?.ifBlank { tab.url }.orEmpty()
+        isLoading = tab?.pendingUrl?.isNotBlank() == true
+        isSecure = (tab?.url ?: "").startsWith("https://")
     }
 
     LaunchedEffect(activeTabId, defaultSearchEngineId) {
-        if (activeTab.url.isBlank() && activeTab.searchEngineId != defaultSearchEngineId) {
+        if (
+            activeTab.url.isBlank() &&
+            activeTab.pendingUrl.isBlank() &&
+            activeTab.searchEngineId != defaultSearchEngineId
+        ) {
             TabManager.updateActiveTab(searchEngineId = defaultSearchEngineId)
         }
     }
 
-    LaunchedEffect(addressBarText) {
-        val host = withContext(Dispatchers.Default) {
-            runCatching { Uri.parse(addressBarText).host.orEmpty() }.getOrDefault("")
+    LaunchedEffect(activeTabId, activeTab.pendingUrl) {
+        val pending = activeTab.pendingUrl
+        if (pending.isNotBlank()) {
+            webViewRef.value?.loadUrl(pending)
         }
-        jsAllowed = AppPreferences.isJavaScriptAllowed(context, host)
     }
 
     DisposableEffect(Unit) {
         onDispose {
-            webViewRef?.let { webView ->
-                val bundle = Bundle()
-                webView.saveState(bundle)
-                TabManager.saveState(attachedTabId, bundle)
+            webViewRef.value?.let { webView ->
+                val state = Bundle()
+                webView.saveState(state)
+                TabManager.saveState(attachedTabId, state)
             }
         }
     }
 
-    val showHomePage = showHomeOverlay || activeTab.url.isBlank()
+    val showHomePage = showHomeOverlay || (activeTab.url.isBlank() && activeTab.pendingUrl.isBlank())
 
-    BackHandler(enabled = webViewRef?.canGoBack() == true && !showHomePage) {
-        webViewRef?.goBack()
+    val onSubmitUrl: (String) -> Unit = { input ->
+        val target = normalizeToUrl(input, activeTab.searchEngineId)
+        if (target.isNotBlank()) {
+            addressBarText = target
+            isLoading = true
+            loadProgress = 0.05f
+            TabManager.submitUrl(target)
+            onNavigateToBrowser()
+        }
+    }
+
+    BackHandler(enabled = webViewRef.value?.canGoBack() == true) {
+        webViewRef.value?.goBack()
     }
 
     Box(
@@ -200,7 +215,7 @@ fun BrowserScreen(
             .background(AppBackground)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            BrowserTopBar(
+            AddressBar(
                 url = addressBarText,
                 isSecure = isSecure,
                 tabCount = tabs.size,
@@ -209,26 +224,16 @@ fun BrowserScreen(
                 jsAllowed = jsAllowed,
                 searchEngineLabel = searchEngineById(activeTab.searchEngineId).label,
                 searchEngineMenuExpanded = showSearchEngineMenu,
-                showJsMenu = showJsMenu,
                 onDismissSearchEngineMenu = { showSearchEngineMenu = false },
-                onSelectSearchEngine = {
-                    TabManager.updateActiveTab(searchEngineId = it.id)
+                onSelectSearchEngine = { engine ->
+                    TabManager.updateActiveTab(searchEngineId = engine.id)
                     showSearchEngineMenu = false
                 },
                 onUrlChange = { addressBarText = it },
-                onUrlSubmit = {
-                    val target = normalizeToUrl(addressBarText, activeTab.searchEngineId)
-                    if (target.isNotBlank()) {
-                        addressBarText = target
-                        TabManager.submitUrl(target)
-                        isLoading = true
-                        loadProgress = 0.05f
-                        onNavigateToBrowser()
-                    }
-                },
+                onUrlSubmit = { onSubmitUrl(addressBarText) },
                 onRefreshOrStop = {
-                    webViewRef?.let { view ->
-                        if (isLoading) view.stopLoading() else view.reload()
+                    webViewRef.value?.let { wv ->
+                        if (isLoading) wv.stopLoading() else wv.reload()
                     }
                 },
                 onTabsClick = { showTabsSheet = true },
@@ -239,10 +244,11 @@ fun BrowserScreen(
                         val host = runCatching { Uri.parse(addressBarText).host.orEmpty() }.getOrDefault("")
                         AppPreferences.setJavaScriptAllowed(context, host, allowed)
                         jsAllowed = allowed
-                        webViewRef?.settings?.javaScriptEnabled = allowed
-                        webViewRef?.reload()
+                        webViewRef.value?.settings?.javaScriptEnabled = allowed
+                        webViewRef.value?.reload()
                     }
                 },
+                showJsMenu = showJsMenu,
                 onDismissJsMenu = { showJsMenu = false }
             )
 
@@ -260,16 +266,16 @@ fun BrowserScreen(
                     factory = { ctx ->
                         WebView(ctx).apply {
                             settings.domStorageEnabled = true
-                            settings.allowFileAccess = false
                             settings.javaScriptEnabled = true
-                            settings.useWideViewPort = activeTab.isDesktopMode
-                            settings.loadWithOverviewMode = activeTab.isDesktopMode
-                            settings.userAgentString = userAgentFor(activeTab.isDesktopMode)
+                            settings.useWideViewPort = false
+                            settings.loadWithOverviewMode = false
+                            settings.userAgentString = MOBILE_USER_AGENT
                             addJavascriptInterface(bridge, "Android")
 
                             webChromeClient = object : WebChromeClient() {
                                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
                                     loadProgress = newProgress / 100f
+                                    if (newProgress == 100) isLoading = false
                                 }
 
                                 override fun onReceivedTitle(view: WebView?, title: String?) {
@@ -290,10 +296,10 @@ fun BrowserScreen(
                                     super.onPageStarted(view, url, favicon)
                                     isLoading = true
                                     loadProgress = 0.1f
-                                    if (!url.isNullOrBlank()) {
-                                        TabManager.commitUrl(url)
-                                        addressBarText = url
-                                        isSecure = url.startsWith("https://")
+                                    url?.let {
+                                        addressBarText = it
+                                        isSecure = it.startsWith("https://")
+                                        TabManager.commitUrl(it)
                                     }
                                     scope.launch {
                                         val host = runCatching { Uri.parse(url).host.orEmpty() }.getOrDefault("")
@@ -309,92 +315,103 @@ fun BrowserScreen(
                                     if (videoSnifferEnabled) {
                                         injectVideoSnifferScript(view)
                                     }
-                                    if (!url.isNullOrBlank()) {
-                                        val title = view?.title?.takeIf { it.isNotBlank() }
-                                            ?: runCatching { Uri.parse(url).host.orEmpty().removePrefix("www.") }.getOrDefault(url)
-                                        recentHistory.removeAll { it.url == url }
-                                        recentHistory.add(0, HistorySite(title = title, url = url))
-                                        while (recentHistory.size > 5) recentHistory.removeLast()
+                                    url?.let {
+                                        val title = runCatching { Uri.parse(it).host.orEmpty() }
+                                            .getOrDefault(it)
+                                            .removePrefix("www.")
+                                            .ifBlank { it }
+                                        recentHistory.value = (listOf(HistorySite(title, it)) + recentHistory.value)
+                                            .distinctBy { site -> site.url }
+                                            .take(5)
                                     }
                                 }
 
-                                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                override fun shouldOverrideUrlLoading(
+                                    view: WebView?,
+                                    request: WebResourceRequest?
+                                ): Boolean {
                                     val newUrl = request?.url?.toString().orEmpty()
                                     if (newUrl.isBlank()) return false
                                     val uri = Uri.parse(newUrl)
-                                    if (httpsEverywhereEnabled && uri.scheme == "http" && !httpOnlyDomains.contains(uri.host.orEmpty())) {
+                                    if (
+                                        httpsEverywhereEnabled &&
+                                        uri.scheme == "http" &&
+                                        !httpOnlyDomains.contains(uri.host.orEmpty())
+                                    ) {
                                         view?.loadUrl(uri.buildUpon().scheme("https").build().toString())
                                         return true
                                     }
                                     return false
                                 }
 
-                                override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?) =
-                                    request?.url?.toString()?.let { requestUrl ->
-                                        val lower = requestUrl.lowercase()
-                                        val acceptHeader = request.requestHeaders.entries
-                                            .firstOrNull { it.key.equals("Accept", ignoreCase = true) }
-                                            ?.value
-                                            ?.lowercase()
-                                            .orEmpty()
-                                        if (videoSnifferEnabled && (videoExtensions.any { lower.contains(it) } || acceptHeader.contains("video/"))) {
-                                            videoSnifferViewModel.onVideoDetected(
-                                                url = requestUrl,
-                                                type = lower.substringAfterLast('.', "video")
-                                            )
-                                        }
-                                        if (adBlockEnabled) AdBlocker.interceptIfBlocked(requestUrl) else null
+                                override fun shouldInterceptRequest(
+                                    view: WebView?,
+                                    request: WebResourceRequest?
+                                ): android.webkit.WebResourceResponse? {
+                                    val requestUrl = request?.url?.toString().orEmpty()
+                                    val lower = requestUrl.lowercase()
+                                    val accept = request?.requestHeaders?.entries
+                                        ?.firstOrNull { it.key.equals("Accept", true) }
+                                        ?.value
+                                        ?.lowercase()
+                                        .orEmpty()
+                                    if (
+                                        videoSnifferEnabled &&
+                                        (videoExtensions.any { lower.contains(it) } || accept.contains("video/"))
+                                    ) {
+                                        videoSnifferViewModel.onVideoDetected(
+                                            requestUrl,
+                                            type = lower.substringAfterLast('.', "video")
+                                        )
                                     }
+                                    if (adBlockEnabled) return AdBlocker.interceptIfBlocked(requestUrl)
+                                    return null
+                                }
                             }
 
-                            webViewRef = this
+                            webViewRef.value = this
                         }
                     },
                     update = { webView ->
-                        webViewRef = webView
+                        webViewRef.value = webView
+
                         if (attachedTabId != activeTabId) {
-                            val oldState = Bundle()
-                            webView.saveState(oldState)
-                            TabManager.saveState(attachedTabId, oldState)
+                            val old = Bundle()
+                            webView.saveState(old)
+                            TabManager.saveState(attachedTabId, old)
                             attachedTabId = activeTabId
-                            val restoredState = TabManager.getSavedState(activeTabId)
-                            if (restoredState != null) {
-                                webView.restoreState(restoredState)
-                            } else if (activeTab.url.isNotBlank()) {
-                                webView.loadUrl(activeTab.url)
-                            } else {
-                                webView.loadUrl("about:blank")
+
+                            val restored = TabManager.getSavedState(activeTabId)
+                            if (restored != null) {
+                                webView.restoreState(restored)
                             }
                         }
 
-                        val desiredUserAgent = userAgentFor(activeTab.isDesktopMode)
+                        val desiredUA = if (activeTab.isDesktopMode) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
                         if (webView.settings.useWideViewPort != activeTab.isDesktopMode) {
                             webView.settings.useWideViewPort = activeTab.isDesktopMode
                         }
                         if (webView.settings.loadWithOverviewMode != activeTab.isDesktopMode) {
                             webView.settings.loadWithOverviewMode = activeTab.isDesktopMode
                         }
-                        if (webView.settings.userAgentString != desiredUserAgent) {
-                            webView.settings.userAgentString = desiredUserAgent
-                        }
-
-                        val submittedUrl = activeTab.pendingUrl
-                        if (submittedUrl.isNotBlank() && submittedUrl != webView.url) {
-                            webView.loadUrl(submittedUrl)
-                        } else if (!showHomePage && activeTab.url.isNotBlank() && webView.url == null) {
-                            webView.loadUrl(activeTab.url)
+                        if (webView.settings.userAgentString != desiredUA) {
+                            webView.settings.userAgentString = desiredUA
                         }
                     }
                 )
 
+                if (isLoading && loadProgress < 0.15f) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(AppBackground)
+                    )
+                }
+
                 if (showHomePage) {
                     HomeScreen(
-                        recentHistory = recentHistory,
-                        onSpeedDialClick = { url ->
-                            addressBarText = url
-                            TabManager.submitUrl(url)
-                            onNavigateToBrowser()
-                        },
+                        recentHistory = recentHistory.value,
+                        onSpeedDialClick = onSubmitUrl,
                         modifier = Modifier
                             .fillMaxSize()
                             .background(AppBackground)
@@ -404,40 +421,47 @@ fun BrowserScreen(
         }
 
         if (!showHomePage) {
-            FloatingActionButton(
-                onClick = { showBrowserMenu = true },
+            Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(20.dp),
-                containerColor = PrimaryBlue,
-                contentColor = Color.White
+                    .padding(20.dp)
             ) {
-                Text("Menu")
-            }
-            DropdownMenu(
-                expanded = showBrowserMenu,
-                onDismissRequest = { showBrowserMenu = false },
-                modifier = Modifier.background(AppSurface)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                FloatingActionButton(
+                    onClick = { showBrowserMenu = true },
+                    containerColor = PrimaryBlue,
+                    contentColor = Color.White
                 ) {
-                    Text("Desktop site", modifier = Modifier.weight(1f))
-                    Switch(
-                        checked = activeTab.isDesktopMode,
-                        onCheckedChange = { enabled ->
-                            TabManager.updateActiveTab(desktopMode = enabled)
-                            webViewRef?.settings?.useWideViewPort = enabled
-                            webViewRef?.settings?.loadWithOverviewMode = enabled
-                            webViewRef?.settings?.userAgentString = userAgentFor(enabled)
-                            webViewRef?.reload()
-                        }
-                    )
+                    Text("Menu")
+                }
+
+                DropdownMenu(
+                    expanded = showBrowserMenu,
+                    onDismissRequest = { showBrowserMenu = false }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text("Desktop site", modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = activeTab.isDesktopMode,
+                            onCheckedChange = { enabled ->
+                                TabManager.updateActiveTab(desktopMode = enabled)
+                                webViewRef.value?.apply {
+                                    settings.useWideViewPort = enabled
+                                    settings.loadWithOverviewMode = enabled
+                                    settings.userAgentString = if (enabled) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
+                                    reload()
+                                }
+                            }
+                        )
+                    }
                 }
             }
-        } else {
+        }
+
+        if (showHomePage) {
             FloatingActionButton(
                 onClick = { showTabsSheet = true },
                 modifier = Modifier
@@ -446,7 +470,10 @@ fun BrowserScreen(
                 containerColor = PrimaryBlue,
                 contentColor = Color.White
             ) {
-                Text(tabs.size.toString())
+                Text(
+                    text = tabs.size.toString(),
+                    style = MaterialTheme.typography.titleMedium
+                )
             }
         }
 
@@ -455,33 +482,12 @@ fun BrowserScreen(
                 .align(Alignment.BottomCenter)
                 .padding(12.dp),
             videos = detectedVideos,
-            onDismiss = { videoSnifferViewModel.removeVideo(it) },
+            onDismiss = { url -> videoSnifferViewModel.removeVideo(url) },
             onOpenList = { showVideoListSheet = true },
-            onDownload = {
-                enqueueDownload(context, it)
-                videoSnifferViewModel.removeVideo(it.url)
+            onDownload = { video ->
+                enqueueDownload(context, video)
+                videoSnifferViewModel.removeVideo(video.url)
             }
-        )
-    }
-
-    if (showTabsSheet) {
-        TabSheet(
-            tabs = tabs,
-            activeTabId = activeTabId,
-            onSelectTab = {
-                TabManager.switchToTab(it)
-                showTabsSheet = false
-            },
-            onCloseTab = { TabManager.closeTab(it) },
-            onNewTab = {
-                if (!TabManager.openNewTab()) {
-                    Toast.makeText(context, "Maximum of ${TabManager.maxTabs()} tabs reached", Toast.LENGTH_SHORT).show()
-                } else {
-                    AdBlocker.resetCount()
-                    showTabsSheet = false
-                }
-            },
-            onDismiss = { showTabsSheet = false }
         )
     }
 
@@ -495,10 +501,31 @@ fun BrowserScreen(
             }
         )
     }
+
+    if (showTabsSheet) {
+        TabSheet(
+            tabs = tabs,
+            activeTabId = activeTabId,
+            onSelectTab = { id ->
+                TabManager.switchToTab(id)
+                showTabsSheet = false
+            },
+            onCloseTab = { TabManager.closeTab(it) },
+            onNewTab = {
+                if (!TabManager.openNewTab()) {
+                    Toast.makeText(context, "Maximum of 10 tabs reached", Toast.LENGTH_SHORT).show()
+                } else {
+                    AdBlocker.resetCount()
+                    showTabsSheet = false
+                }
+            },
+            onDismiss = { showTabsSheet = false }
+        )
+    }
 }
 
 @Composable
-private fun BrowserTopBar(
+private fun AddressBar(
     url: String,
     isSecure: Boolean,
     tabCount: Int,
@@ -507,7 +534,6 @@ private fun BrowserTopBar(
     jsAllowed: Boolean,
     searchEngineLabel: String,
     searchEngineMenuExpanded: Boolean,
-    showJsMenu: Boolean,
     onDismissSearchEngineMenu: () -> Unit,
     onSelectSearchEngine: (SearchEngine) -> Unit,
     onUrlChange: (String) -> Unit,
@@ -517,6 +543,7 @@ private fun BrowserTopBar(
     onSearchEngineClick: () -> Unit,
     onLockLongPress: () -> Unit,
     onSetJavaScriptAllowed: (Boolean) -> Unit,
+    showJsMenu: Boolean,
     onDismissJsMenu: () -> Unit
 ) {
     val focusManager = LocalFocusManager.current
@@ -530,7 +557,7 @@ private fun BrowserTopBar(
     ) {
         Box {
             Icon(
-                imageVector = Icons.Default.Lock,
+                Icons.Default.Lock,
                 contentDescription = "Connection security",
                 tint = if (isSecure) Color(0xFF2E7D32) else Color.Gray,
                 modifier = Modifier.combinedClickable(onClick = {}, onLongClick = onLockLongPress)
@@ -613,7 +640,7 @@ private fun BrowserTopBar(
         Spacer(modifier = Modifier.width(8.dp))
 
         Icon(
-            imageVector = if (isLoading) Icons.Default.Close else Icons.Default.Refresh,
+            if (isLoading) Icons.Default.Close else Icons.Default.Refresh,
             contentDescription = if (isLoading) "Stop loading" else "Refresh",
             modifier = Modifier
                 .size(24.dp)
@@ -643,7 +670,7 @@ private fun TabSheet(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(tabs, key = { it.id }) { tab ->
+            gridItems(tabs) { tab ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -673,7 +700,7 @@ private fun TabSheet(
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = tab.title,
+                                tab.title,
                                 modifier = Modifier.weight(1f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -684,7 +711,7 @@ private fun TabSheet(
                             }
                         }
                         Text(
-                            text = tab.pendingUrl.ifBlank { tab.url }.ifBlank { "New Tab" },
+                            tab.pendingUrl.ifBlank { tab.url }.ifBlank { "New Tab" },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.labelSmall
@@ -721,13 +748,12 @@ private fun HomeScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "Webvault",
+            "Webvault",
             color = PrimaryBlue,
             fontSize = 38.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(top = 24.dp, bottom = 48.dp)
         )
-
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             defaultSpeedDials.chunked(4).forEach { rowSites ->
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -754,7 +780,7 @@ private fun HomeScreen(
                                         .background(PrimaryBlue),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(name.first().uppercase(), color = Color.White)
+                                    Text(name.first().uppercaseChar().toString(), color = Color.White)
                                 }
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(name, style = MaterialTheme.typography.labelMedium)
@@ -764,13 +790,14 @@ private fun HomeScreen(
                 }
             }
         }
-
         Spacer(modifier = Modifier.height(24.dp))
         Text("Recent History", modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(8.dp))
-
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
-            items(recentHistory.take(5), key = { it.url }) { site ->
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(vertical = 4.dp)
+        ) {
+            items(recentHistory.take(5)) { site ->
                 Card(
                     modifier = Modifier
                         .width(132.dp)
@@ -803,7 +830,11 @@ private fun VideoDownloadBanner(
     val first = videos.first()
 
     if (videos.size > 1) {
-        AssistChip(onClick = onOpenList, label = { Text("${videos.size} videos found") }, modifier = modifier)
+        AssistChip(
+            onClick = onOpenList,
+            label = { Text("${videos.size} videos found") },
+            modifier = modifier
+        )
     }
 
     SwipeToDismissBox(
@@ -859,7 +890,7 @@ private fun VideoListSheet(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(videos, key = { it.url }) { video ->
+            gridItems(videos) { video ->
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier
@@ -881,10 +912,6 @@ private fun VideoListSheet(
             }
         }
     }
-}
-
-private fun userAgentFor(desktopMode: Boolean): String {
-    return if (desktopMode) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
 }
 
 private fun injectVideoSnifferScript(view: WebView?) {
@@ -911,10 +938,10 @@ private fun enqueueDownload(context: Context, video: DetectedVideo) {
         .putString(DownloadWorker.KEY_FILENAME, video.filename)
         .putString(DownloadWorker.KEY_ID, id)
         .build()
-    val request = OneTimeWorkRequestBuilder<DownloadWorker>()
+    val work = OneTimeWorkRequestBuilder<DownloadWorker>()
         .setInputData(data)
         .build()
-    WorkManager.getInstance(context).enqueue(request)
+    WorkManager.getInstance(context).enqueue(work)
 }
 
 private fun normalizeToUrl(input: String, searchEngineId: String): String {
