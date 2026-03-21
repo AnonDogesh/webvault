@@ -1,6 +1,8 @@
 package com.webvault.browser
 
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.background
@@ -35,6 +37,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -56,6 +59,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun VaultScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val biometricLockEnabled by AppPreferences.biometricLockEnabledFlow(context).collectAsState(initial = true)
     var unlocked by remember { mutableStateOf(false) }
     var pinInput by remember { mutableStateOf("") }
     var confirmPinInput by remember { mutableStateOf("") }
@@ -79,6 +83,7 @@ fun VaultScreen(modifier: Modifier = Modifier) {
             setupMode = setupMode,
             confirmPinInput = confirmPinInput,
             lockoutSeconds = lockoutSeconds,
+            biometricEnabled = biometricLockEnabled,
             onDigit = { d ->
                 if (lockoutSeconds > 0) return@LockedVaultScreen
                 if (setupMode) {
@@ -121,10 +126,16 @@ fun VaultScreen(modifier: Modifier = Modifier) {
                 else if (pinInput.isNotEmpty()) pinInput = pinInput.dropLast(1)
             },
             onBiometric = {
-                val activity = context as? androidx.fragment.app.FragmentActivity ?: return@LockedVaultScreen
+                val activity = context as? androidx.fragment.app.FragmentActivity
+                if (activity == null) {
+                    Toast.makeText(context, "Biometric unlock is unavailable on this screen", Toast.LENGTH_SHORT).show()
+                    return@LockedVaultScreen
+                }
                 val biometricManager = BiometricManager.from(context)
-                if (biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) != BiometricManager.BIOMETRIC_SUCCESS) {
-                    Toast.makeText(context, "Biometric not available", Toast.LENGTH_SHORT).show()
+                val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                    BiometricManager.Authenticators.BIOMETRIC_WEAK
+                if (biometricManager.canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) {
+                    Toast.makeText(context, "No enrolled phone biometrics found", Toast.LENGTH_SHORT).show()
                     return@LockedVaultScreen
                 }
                 val prompt = BiometricPrompt(
@@ -139,7 +150,7 @@ fun VaultScreen(modifier: Modifier = Modifier) {
                 prompt.authenticate(
                     BiometricPrompt.PromptInfo.Builder()
                         .setTitle("Unlock Private Vault")
-                        .setSubtitle("Use fingerprint or face")
+                        .setSubtitle("Use the fingerprint or biometric enrolled on this phone")
                         .setNegativeButtonText("Cancel")
                         .build()
                 )
@@ -155,6 +166,7 @@ private fun LockedVaultScreen(
     setupMode: Boolean,
     confirmPinInput: String,
     lockoutSeconds: Int,
+    biometricEnabled: Boolean,
     onDigit: (String) -> Unit,
     onDelete: () -> Unit,
     onBiometric: () -> Unit
@@ -209,8 +221,9 @@ private fun LockedVaultScreen(
                 }
             }
         }
-
-        Button(onClick = onBiometric) { Text("Use fingerprint instead") }
+        if (biometricEnabled) {
+            Button(onClick = onBiometric) { Text("Use fingerprint instead") }
+        }
     }
 }
 
@@ -224,6 +237,23 @@ private fun VaultUnlockedScreen(modifier: Modifier = Modifier) {
     fun refresh() {
         files.clear()
         files.addAll(VaultManager.listVaultFiles(context))
+    }
+
+    val addFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val imported = VaultManager.importUriToVault(context, uri)
+            if (imported.isSuccess) {
+                refresh()
+                Toast.makeText(context, "Added to Vault", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(
+                    context,
+                    imported.exceptionOrNull()?.message ?: "Unable to add file to Vault",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
     }
 
     LaunchedEffect(Unit) { refresh() }
@@ -241,7 +271,7 @@ private fun VaultUnlockedScreen(modifier: Modifier = Modifier) {
                 val totalBytes = files.sumOf { it.sizeBytes }
                 Text("${files.size} files • ${formatBytes(totalBytes)}", color = Color.Gray)
             }
-            Button(onClick = { Toast.makeText(context, "Add flow placeholder", Toast.LENGTH_SHORT).show() }) {
+            Button(onClick = { addFileLauncher.launch(arrayOf("*/*")) }) {
                 Text("+ Add")
             }
         }

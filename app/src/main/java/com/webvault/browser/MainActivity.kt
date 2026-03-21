@@ -1,17 +1,14 @@
 package com.webvault.browser
 
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import android.os.Bundle
-import androidx.compose.foundation.layout.Box
+import androidx.activity.compose.setContent
+import androidx.fragment.app.FragmentActivity
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -22,20 +19,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.webvault.browser.ui.theme.WebvaultTheme
 
 enum class BottomNavItem(val label: String) {
     Home("Home"),
-    Browser("Browser"),
     Downloads("Downloads"),
     Vault("Vault"),
     Settings("Settings")
 }
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -48,7 +43,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun WebvaultApp() {
-    var selectedItem by remember { mutableStateOf(BottomNavItem.Home) }
+    var selectedItem by remember { mutableStateOf<BottomNavItem?>(BottomNavItem.Home) }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -59,16 +54,12 @@ fun WebvaultApp() {
                         selected = selectedItem == item,
                         onClick = { selectedItem = item },
                         icon = {
-                            Icon(
-                                imageVector = when (item) {
-                                    BottomNavItem.Home -> Icons.Default.Home
-                                    BottomNavItem.Browser -> Icons.Default.Search
-                                    BottomNavItem.Downloads -> Icons.Default.Refresh
-                                    BottomNavItem.Vault -> Icons.Default.Lock
-                                    BottomNavItem.Settings -> Icons.Default.Settings
-                                },
-                                contentDescription = item.label
-                            )
+                            when (item) {
+                                BottomNavItem.Home -> Icon(Icons.Default.Home, contentDescription = item.label)
+                                BottomNavItem.Downloads -> Text("↓")
+                                BottomNavItem.Vault -> Icon(Icons.Default.Lock, contentDescription = item.label)
+                                BottomNavItem.Settings -> Icon(Icons.Default.Settings, contentDescription = item.label)
+                            }
                         },
                         label = { Text(item.label) }
                     )
@@ -77,19 +68,15 @@ fun WebvaultApp() {
         }
     ) { innerPadding ->
         when (selectedItem) {
-            BottomNavItem.Home -> PlaceholderScreen("Home", Modifier.padding(innerPadding))
-            BottomNavItem.Browser -> BrowserScreen(Modifier.padding(innerPadding))
             BottomNavItem.Downloads -> DownloadsScreen(Modifier.padding(innerPadding))
             BottomNavItem.Vault -> VaultScreen(Modifier.padding(innerPadding))
             BottomNavItem.Settings -> SettingsScreen(Modifier.padding(innerPadding))
+            BottomNavItem.Home, null -> BrowserScreen(
+                modifier = Modifier.padding(innerPadding),
+                showHomeOverlay = selectedItem == BottomNavItem.Home,
+                onNavigateToBrowser = { selectedItem = null }
+            )
         }
-    }
-}
-
-@Composable
-private fun PlaceholderScreen(name: String, modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text = "$name Screen")
     }
 }
 

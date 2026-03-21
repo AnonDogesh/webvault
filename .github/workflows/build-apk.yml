@@ -1,4 +1,4 @@
-name: Build and Release APK
+name: Build Debug APK
 
 on:
   push:
@@ -33,69 +33,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
-      - name: Build release APK
-        run: ./gradlew assembleRelease
+      - name: Build debug APK
+        run: ./gradlew assembleDebug
 
-      - name: Decode keystore
-        env:
-          KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
-        run: |
-          if [ -z "$KEYSTORE_FILE" ]; then
-            echo "KEYSTORE_FILE secret is empty"
-            exit 1
-          fi
-
-          # KEYSTORE_FILE must be base64 of the raw keystore bytes
-          printf '%s' "$KEYSTORE_FILE" | base64 --decode > /tmp/webvault.keystore
-
-          if [ ! -s /tmp/webvault.keystore ]; then
-            echo "Decoded keystore is empty. Verify KEYSTORE_FILE base64 value."
-            exit 1
-          fi
-
-      - name: Sign APK
-        env:
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          KEYSTORE_TYPE: ${{ secrets.KEYSTORE_TYPE }}
-        run: |
-          UNSIGNED_APK="$(find app/build/outputs/apk/release -name '*-unsigned.apk' | head -n 1)"
-          SIGNED_APK="app/build/outputs/apk/release/app-release-signed.apk"
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)"
-
-          if [ -z "$UNSIGNED_APK" ]; then
-            echo "Unsigned APK not found"
-            exit 1
-          fi
-
-          if [ -z "$APKSIGNER" ]; then
-            echo "apksigner not found"
-            exit 1
-          fi
-
-          KS_TYPE="${KEYSTORE_TYPE:-JKS}"
-
-          "$APKSIGNER" sign \
-            --ks /tmp/webvault.keystore \
-            --ks-type "$KS_TYPE" \
-            --ks-key-alias "$KEY_ALIAS" \
-            --ks-pass pass:"$STORE_PASSWORD" \
-            --key-pass pass:"$KEY_PASSWORD" \
-            --out "$SIGNED_APK" \
-            "$UNSIGNED_APK"
-
-      - name: Upload signed APK artifact
+      - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Webvault-release.apk
-          path: app/build/outputs/apk/release/app-release-signed.apk
+          name: Webvault-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 7
-
-      - name: Create GitHub Release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ github.run_number }}
-          name: Webvault Release ${{ github.run_number }}
-          files: app/build/outputs/apk/release/app-release-signed.apk

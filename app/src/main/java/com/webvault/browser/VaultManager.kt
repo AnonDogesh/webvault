@@ -3,10 +3,13 @@ package com.webvault.browser
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.security.crypto.EncryptedFile
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import java.io.File
+import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -73,6 +76,29 @@ object VaultManager {
         val src = File(download.filePath)
         if (!src.exists()) return Result.failure(IllegalStateException("File not found"))
         return moveFileToVault(context, src)
+    }
+
+    fun importUriToVault(context: Context, uri: Uri): Result<File> = runCatching {
+        val displayName = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (nameIndex >= 0 && cursor.moveToFirst()) cursor.getString(nameIndex) else null
+            }
+            ?.takeIf { it.isNotBlank() }
+            ?: "vault-import-${UUID.randomUUID()}"
+
+        val safeName = displayName.replace(Regex("""[\\/:*?"<>|]"""), "_")
+        val tempFile = File(context.cacheDir, "${UUID.randomUUID()}_$safeName").apply {
+            parentFile?.mkdirs()
+            if (exists()) delete()
+        }
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            FileOutputStream(tempFile).use { output ->
+                input.copyTo(output)
+            }
+        } ?: error("Unable to read selected file")
+
+        moveFileToVault(context, tempFile).getOrThrow()
     }
 
     fun listVaultFiles(context: Context): List<VaultFile> {

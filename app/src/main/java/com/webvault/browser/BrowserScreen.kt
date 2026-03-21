@@ -44,7 +44,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Button
@@ -52,6 +51,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -61,6 +61,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -117,6 +118,8 @@ data class HistorySite(val title: String, val url: String)
 @Composable
 fun BrowserScreen(
     modifier: Modifier = Modifier,
+    showHomeOverlay: Boolean = false,
+    onNavigateToBrowser: () -> Unit = {},
     videoSnifferViewModel: VideoSnifferViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -134,67 +137,96 @@ fun BrowserScreen(
     var attachedTabId by remember { mutableStateOf(activeTabId) }
     var showTabsSheet by remember { mutableStateOf(false) }
     var showJsMenu by remember { mutableStateOf(false) }
+    var showBrowserMenu by remember { mutableStateOf(false) }
+    var showSearchEngineMenu by remember { mutableStateOf(false) }
     var jsAllowed by remember { mutableStateOf(true) }
     var showVideoListSheet by remember { mutableStateOf(false) }
     val blockedCount by AdBlocker.blockedCount.collectAsState()
     val adBlockEnabled by AppPreferences.adBlockEnabledFlow(context).collectAsState(initial = true)
+    val httpsEverywhereEnabled by AppPreferences.httpsEverywhereEnabledFlow(context).collectAsState(initial = true)
+    val videoSnifferEnabled by AppPreferences.videoSnifferEnabledFlow(context).collectAsState(initial = true)
+    val defaultSearchEngineId by AppPreferences.defaultSearchEngineFlow(context).collectAsState(initial = defaultSearchEngine().id)
     val detectedVideos by videoSnifferViewModel.videos.collectAsState()
 
     val bridge = remember(videoSnifferViewModel) { VideoSnifferBridge(videoSnifferViewModel) }
 
     LaunchedEffect(Unit) { AdBlocker.initialize(context) }
-    LaunchedEffect(activeTabId) { addressBarText = activeTab.url }
+    LaunchedEffect(activeTabId) {
+        val url = TabManager.tabs.value.firstOrNull { it.id == activeTabId }?.url.orEmpty()
+        addressBarText = url
+    }
 
     val onSubmitUrl: (String) -> Unit = { input ->
-        val target = normalizeToUrl(input)
+        val target = normalizeToUrl(input, activeTab.searchEngineId)
         if (target.isNotBlank()) {
             addressBarText = target
             TabManager.updateActiveTab(url = target)
+            isLoading = true
+            loadProgress = 0.05f
+            onNavigateToBrowser()
         }
     }
+
+
+    LaunchedEffect(activeTabId, defaultSearchEngineId) {
+        if (activeTab.url.isBlank() && activeTab.searchEngineId != defaultSearchEngineId) {
+            TabManager.updateActiveTab(searchEngineId = defaultSearchEngineId)
+        }
+    }
+
+    val showHomePage = showHomeOverlay || activeTab.url.isBlank()
 
     BackHandler(enabled = webViewRef?.canGoBack() == true) { webViewRef?.goBack() }
 
     Box(modifier = modifier.fillMaxSize().background(AppBackground)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            if (activeTab.url.isBlank()) {
-                HomeScreen(recentHistory.value, onSubmit = onSubmitUrl, onSpeedDialClick = onSubmitUrl)
-            } else {
-                AddressBar(
-                    url = addressBarText,
-                    isSecure = isSecure,
-                    tabCount = tabs.size,
-                    isLoading = isLoading,
-                    blockedCount = blockedCount,
-                    jsAllowed = jsAllowed,
-                    onUrlChange = { addressBarText = it },
-                    onUrlSubmit = { onSubmitUrl(addressBarText) },
-                    onRefreshOrStop = { webViewRef?.let { if (isLoading) it.stopLoading() else it.reload() } },
-                    onTabsClick = { showTabsSheet = true },
-                    onLockLongPress = { showJsMenu = true },
-                    onSetJavaScriptAllowed = { allowed ->
-                        scope.launch {
-                            val host = runCatching { Uri.parse(addressBarText).host.orEmpty() }.getOrDefault("")
-                            AppPreferences.setJavaScriptAllowed(context, host, allowed)
-                            jsAllowed = allowed
-                            webViewRef?.settings?.javaScriptEnabled = allowed
-                            webViewRef?.reload()
-                        }
-                    },
-                    showJsMenu = showJsMenu,
-                    onDismissJsMenu = { showJsMenu = false }
-                )
+            AddressBar(
+                url = addressBarText,
+                isSecure = isSecure,
+                tabCount = tabs.size,
+                isLoading = isLoading,
+                blockedCount = blockedCount,
+                jsAllowed = jsAllowed,
+                searchEngineLabel = searchEngineById(activeTab.searchEngineId).label,
+                searchEngineMenuExpanded = showSearchEngineMenu,
+                onDismissSearchEngineMenu = { showSearchEngineMenu = false },
+                onSelectSearchEngine = { engine ->
+                    TabManager.updateActiveTab(searchEngineId = engine.id)
+                    showSearchEngineMenu = false
+                },
+                onUrlChange = { addressBarText = it },
+                onUrlSubmit = { onSubmitUrl(addressBarText) },
+                onRefreshOrStop = { webViewRef?.let { if (isLoading) it.stopLoading() else it.reload() } },
+                onTabsClick = { showTabsSheet = true },
+                onSearchEngineClick = { showSearchEngineMenu = true },
+                onLockLongPress = { showJsMenu = true },
+                onSetJavaScriptAllowed = { allowed ->
+                    scope.launch {
+                        val host = runCatching { Uri.parse(addressBarText).host.orEmpty() }.getOrDefault("")
+                        AppPreferences.setJavaScriptAllowed(context, host, allowed)
+                        jsAllowed = allowed
+                        webViewRef?.settings?.javaScriptEnabled = allowed
+                        webViewRef?.reload()
+                    }
+                },
+                showJsMenu = showJsMenu,
+                onDismissJsMenu = { showJsMenu = false }
+            )
 
-                if (isLoading) {
-                    LinearProgressIndicator(progress = { loadProgress.coerceIn(0f, 1f) }, color = PrimaryBlue, modifier = Modifier.fillMaxWidth())
-                }
+            if (isLoading) {
+                LinearProgressIndicator(progress = { loadProgress.coerceIn(0f, 1f) }, color = PrimaryBlue, modifier = Modifier.fillMaxWidth())
+            }
 
+            Box(modifier = Modifier.fillMaxSize()) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
                         WebView(ctx).apply {
                             settings.domStorageEnabled = true
-                            settings.userAgentString = "Webvault/1.0 Mobile"
+                            settings.javaScriptEnabled = true
+                            settings.useWideViewPort = activeTab.isDesktopMode
+                            settings.loadWithOverviewMode = activeTab.isDesktopMode
+                            settings.userAgentString = if (activeTab.isDesktopMode) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
                             addJavascriptInterface(bridge, "Android")
 
                             webChromeClient = object : WebChromeClient() {
@@ -234,13 +266,10 @@ fun BrowserScreen(
                                     val newUrl = request?.url?.toString().orEmpty()
                                     if (newUrl.isBlank()) return false
                                     val uri = Uri.parse(newUrl)
-                                    if (uri.scheme == "http" && !httpOnlyDomains.contains(uri.host.orEmpty())) {
+                                    if (httpsEverywhereEnabled && uri.scheme == "http" && !httpOnlyDomains.contains(uri.host.orEmpty())) {
                                         view?.loadUrl(uri.buildUpon().scheme("https").build().toString())
                                         return true
                                     }
-                                    TabManager.updateActiveTab(url = newUrl)
-                                    addressBarText = newUrl
-                                    isSecure = newUrl.startsWith("https://")
                                     return false
                                 }
 
@@ -248,7 +277,7 @@ fun BrowserScreen(
                                     val requestUrl = request?.url?.toString().orEmpty()
                                     val lower = requestUrl.lowercase()
                                     val contentTypeHint = request?.requestHeaders?.entries?.firstOrNull { it.key.equals("Accept", true) }?.value?.lowercase().orEmpty()
-                                    if (videoExtensions.any { lower.contains(it) } || contentTypeHint.contains("video/")) {
+                                    if (videoSnifferEnabled && (videoExtensions.any { lower.contains(it) } || contentTypeHint.contains("video/"))) {
                                         videoSnifferViewModel.onVideoDetected(requestUrl, type = lower.substringAfterLast('.', "video"))
                                     }
                                     if (adBlockEnabled) return AdBlocker.interceptIfBlocked(requestUrl)
@@ -264,11 +293,84 @@ fun BrowserScreen(
                             val old = Bundle(); webView.saveState(old); TabManager.saveState(attachedTabId, old)
                             attachedTabId = activeTabId
                             val restored = TabManager.getSavedState(activeTabId)
-                            if (restored != null) webView.restoreState(restored) else if (activeTab.url.isNotBlank()) webView.loadUrl(activeTab.url)
-                        } else if (activeTab.url.isNotBlank() && activeTab.url != webView.url) {
+                            if (restored != null) webView.restoreState(restored)
+                            else if (activeTab.url.isNotBlank()) webView.loadUrl(activeTab.url)
+                        } else if (!isLoading && activeTab.url.isNotBlank() && activeTab.url != webView.url && webView.url != null) {
                             webView.loadUrl(activeTab.url)
                         }
+                        val desiredUserAgent = if (activeTab.isDesktopMode) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
+                        if (webView.settings.useWideViewPort != activeTab.isDesktopMode) webView.settings.useWideViewPort = activeTab.isDesktopMode
+                        if (webView.settings.loadWithOverviewMode != activeTab.isDesktopMode) webView.settings.loadWithOverviewMode = activeTab.isDesktopMode
+                        if (webView.settings.userAgentString != desiredUserAgent) webView.settings.userAgentString = desiredUserAgent
                     }
+                )
+                if (isLoading && loadProgress < 0.1f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(AppBackground)
+                    )
+                }
+                if (showHomePage) {
+                    HomeScreen(
+                        recentHistory = recentHistory.value,
+                        onSpeedDialClick = onSubmitUrl,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(AppBackground)
+                    )
+                }
+            }
+        }
+
+        if (!showHomePage) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(20.dp)
+            ) {
+                FloatingActionButton(
+                    onClick = { showBrowserMenu = true },
+                    containerColor = PrimaryBlue,
+                    contentColor = Color.White
+                ) {
+                    Text("Menu")
+                }
+                DropdownMenu(expanded = showBrowserMenu, onDismissRequest = { showBrowserMenu = false }) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text("Desktop site", modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = activeTab.isDesktopMode,
+                            onCheckedChange = { enabled ->
+                                TabManager.updateActiveTab(desktopMode = enabled)
+                                webViewRef?.settings?.useWideViewPort = enabled
+                                webViewRef?.settings?.loadWithOverviewMode = enabled
+                                webViewRef?.settings?.userAgentString = if (enabled) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
+                                webViewRef?.reload()
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+
+        if (showHomePage) {
+            FloatingActionButton(
+                onClick = { showTabsSheet = true },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(20.dp),
+                containerColor = PrimaryBlue,
+                contentColor = Color.White
+            ) {
+                Text(
+                    text = tabs.size.toString(),
+                    style = MaterialTheme.typography.titleMedium
                 )
             }
         }
@@ -332,6 +434,11 @@ private fun injectVideoSnifferScript(view: WebView?) {
     """.trimIndent()
     view?.evaluateJavascript(script, null)
 }
+
+private const val MOBILE_USER_AGENT =
+    "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36"
+private const val DESKTOP_USER_AGENT =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 private fun enqueueDownload(context: android.content.Context, video: DetectedVideo) {
     val id = UUID.randomUUID().toString()
@@ -418,10 +525,15 @@ private fun AddressBar(
     isLoading: Boolean,
     blockedCount: Int,
     jsAllowed: Boolean,
+    searchEngineLabel: String,
+    searchEngineMenuExpanded: Boolean,
+    onDismissSearchEngineMenu: () -> Unit,
+    onSelectSearchEngine: (SearchEngine) -> Unit,
     onUrlChange: (String) -> Unit,
     onUrlSubmit: () -> Unit,
     onRefreshOrStop: () -> Unit,
     onTabsClick: () -> Unit,
+    onSearchEngineClick: () -> Unit,
     onLockLongPress: () -> Unit,
     onSetJavaScriptAllowed: (Boolean) -> Unit,
     showJsMenu: Boolean,
@@ -439,6 +551,17 @@ private fun AddressBar(
         OutlinedTextField(url, onUrlChange, modifier = Modifier.weight(1f), placeholder = { Text("Search or enter URL") }, singleLine = true, shape = RoundedCornerShape(22.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = PrimaryBlue, unfocusedBorderColor = Color.LightGray), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go), keyboardActions = KeyboardActions(onGo = { focusManager.clearFocus(); onUrlSubmit() }))
         Spacer(Modifier.width(8.dp))
         Box(Modifier.clip(CircleShape).background(PrimaryBlue).clickable(onClick = onTabsClick).padding(horizontal = 10.dp, vertical = 6.dp)) { Text(tabCount.toString(), color = Color.White, style = MaterialTheme.typography.labelMedium) }
+        Spacer(Modifier.width(6.dp))
+        Box {
+            Box(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFFF3F7FF)).clickable(onClick = onSearchEngineClick).padding(horizontal = 8.dp, vertical = 5.dp)) {
+                Text(searchEngineLabel, style = MaterialTheme.typography.labelSmall, color = PrimaryBlue)
+            }
+            DropdownMenu(expanded = searchEngineMenuExpanded, onDismissRequest = onDismissSearchEngineMenu) {
+                allSearchEngines().forEach { engine ->
+                    DropdownMenuItem(text = { Text(engine.label) }, onClick = { onSelectSearchEngine(engine) })
+                }
+            }
+        }
         Spacer(Modifier.width(6.dp))
         Box(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFFE3F2FD)).padding(horizontal = 8.dp, vertical = 5.dp)) { Text("Blocked: $blockedCount", style = MaterialTheme.typography.labelSmall, color = PrimaryBlue) }
         Spacer(Modifier.width(8.dp))
@@ -475,19 +598,13 @@ private fun TabSheet(tabs: List<Tab>, activeTabId: Int, onSelectTab: (Int) -> Un
 }
 
 @Composable
-fun HomeScreen(recentHistory: List<HistorySite>, onSubmit: (String) -> Unit, onSpeedDialClick: (String) -> Unit, modifier: Modifier = Modifier) {
-    var searchInput by rememberSaveable { mutableStateOf("") }
-    val focusManager = LocalFocusManager.current
+fun HomeScreen(
+    recentHistory: List<HistorySite>,
+    onSpeedDialClick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
     Column(modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text("Webvault", color = PrimaryBlue, fontSize = 38.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 24.dp, bottom = 48.dp))
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = AppSurface)) {
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Search, contentDescription = null, tint = PrimaryBlue)
-                Spacer(Modifier.width(8.dp))
-                OutlinedTextField(searchInput, onValueChange = { searchInput = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text("Search or enter URL") }, singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus(); onSubmit(searchInput) }), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent))
-            }
-        }
-        Spacer(Modifier.height(20.dp))
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             defaultSpeedDials.chunked(4).forEach { rowSites ->
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -507,7 +624,7 @@ fun HomeScreen(recentHistory: List<HistorySite>, onSubmit: (String) -> Unit, onS
         Spacer(Modifier.height(8.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
             items(recentHistory.take(5)) { site ->
-                Card(modifier = Modifier.width(132.dp).height(72.dp).clickable { onSubmit(site.url) }, shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = AppSurface)) {
+                Card(modifier = Modifier.width(132.dp).height(72.dp).clickable { onSpeedDialClick(site.url) }, shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = AppSurface)) {
                     Column(Modifier.padding(10.dp)) {
                         Text(site.title, maxLines = 1, style = MaterialTheme.typography.bodyMedium)
                         Spacer(Modifier.height(4.dp))
@@ -519,9 +636,22 @@ fun HomeScreen(recentHistory: List<HistorySite>, onSubmit: (String) -> Unit, onS
     }
 }
 
-private fun normalizeToUrl(input: String): String {
+private fun normalizeToUrl(input: String, searchEngineId: String): String {
     val trimmed = input.trim()
     if (trimmed.isBlank()) return ""
-    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed
-    return if (' ' in trimmed) "https://www.google.com/search?q=${Uri.encode(trimmed)}" else "https://$trimmed"
+    if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+        return trimmed
+    }
+
+    val hasSchemeLikePrefix = "://" in trimmed
+    val isLocalHost = trimmed.equals("localhost", ignoreCase = true) || trimmed.startsWith("localhost:", ignoreCase = true)
+    val isIpAddress = trimmed.matches(Regex("""\d{1,3}(\.\d{1,3}){3}(:\d+)?([/?#].*)?"""))
+    val hasDomainLikeHost = trimmed.contains('.') && !trimmed.contains(' ')
+    val looksLikeUrl = !hasSchemeLikePrefix && (isLocalHost || isIpAddress || hasDomainLikeHost)
+
+    return if (looksLikeUrl) {
+        "https://$trimmed"
+    } else {
+        buildSearchUrl(trimmed, searchEngineId)
+    }
 }
