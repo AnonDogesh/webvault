@@ -161,9 +161,9 @@ fun BrowserScreen(
         if (target.isNotBlank()) {
             addressBarText = target
             TabManager.updateActiveTab(url = target)
-            onNavigateToBrowser()
             isLoading = true
             loadProgress = 0.05f
+            onNavigateToBrowser()
         }
     }
 
@@ -314,6 +314,13 @@ fun BrowserScreen(
                             if (webView.settings.userAgentString != desiredUserAgent) webView.settings.userAgentString = desiredUserAgent
                         }
                     )
+                    if (isLoading && loadProgress < 0.1f) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(AppBackground)
+                        )
+                    }
                 }
             }
         }
