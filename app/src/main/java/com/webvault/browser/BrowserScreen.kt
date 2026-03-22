@@ -554,8 +554,8 @@ private fun AddressBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(elevation = 2.dp)
-            .background(AppSurface)
+            .shadow(elevation = 4.dp)
+            .background(Color(0xFFF0F6FF))
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -588,7 +588,9 @@ private fun AddressBar(
             shape = RoundedCornerShape(22.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = PrimaryBlue,
-                unfocusedBorderColor = Color(0xFFBBBBBB)
+                unfocusedBorderColor = Color(0xFFBBBBBB),
+                unfocusedContainerColor = Color.White,
+                focusedContainerColor = Color.White
             ),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
             keyboardActions = KeyboardActions(
