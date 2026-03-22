@@ -81,6 +81,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
@@ -225,7 +226,7 @@ fun BrowserScreen(
                 isLoading = isLoading,
                 blockedCount = blockedCount,
                 jsAllowed = jsAllowed,
-                searchEngineLabel = searchEngineById(activeTab.searchEngineId).label,
+                searchEngine = searchEngineById(activeTab.searchEngineId),
                 searchEngineMenuExpanded = showSearchEngineMenu,
                 onDismissSearchEngineMenu = { showSearchEngineMenu = false },
                 onSelectSearchEngine = { engine ->
@@ -536,7 +537,7 @@ private fun AddressBar(
     isLoading: Boolean,
     blockedCount: Int,
     jsAllowed: Boolean,
-    searchEngineLabel: String,
+    searchEngine: SearchEngine,
     searchEngineMenuExpanded: Boolean,
     onDismissSearchEngineMenu: () -> Unit,
     onSelectSearchEngine: (SearchEngine) -> Unit,
@@ -551,14 +552,15 @@ private fun AddressBar(
     onDismissJsMenu: () -> Unit
 ) {
     val focusManager = LocalFocusManager.current
+    var showClearButton by remember(url) { mutableStateOf(false) }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 64.dp)
+            .heightIn(min = 56.dp)
             .shadow(elevation = 4.dp)
             .background(Color(0xFFF0F6FF))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box {
@@ -566,7 +568,9 @@ private fun AddressBar(
                 Icons.Default.Lock,
                 contentDescription = "Connection security",
                 tint = if (isSecure) Color(0xFF2E7D32) else Color.Gray,
-                modifier = Modifier.combinedClickable(onClick = {}, onLongClick = onLockLongPress)
+                modifier = Modifier
+                    .size(20.dp)
+                    .combinedClickable(onClick = {}, onLongClick = onLockLongPress)
             )
             DropdownMenu(expanded = showJsMenu, onDismissRequest = onDismissJsMenu) {
                 DropdownMenuItem(
@@ -579,15 +583,34 @@ private fun AddressBar(
             }
         }
 
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(6.dp))
 
         OutlinedTextField(
             value = url,
             onValueChange = onUrlChange,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .onFocusChanged { focusState ->
+                    showClearButton = focusState.isFocused && url.isNotBlank()
+                },
             placeholder = { Text("Search or enter URL") },
             singleLine = true,
             shape = RoundedCornerShape(22.dp),
+            trailingIcon = {
+                if (showClearButton) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Clear URL",
+                        tint = Color.Gray,
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clickable {
+                                onUrlChange("")
+                                showClearButton = false
+                            }
+                    )
+                }
+            },
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = PrimaryBlue,
                 unfocusedBorderColor = Color(0xFFBBBBBB),
@@ -598,12 +621,43 @@ private fun AddressBar(
             keyboardActions = KeyboardActions(
                 onGo = {
                     focusManager.clearFocus()
+                    showClearButton = false
                     onUrlSubmit()
                 }
             )
         )
 
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(6.dp))
+
+        Box {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.White)
+                    .clickable(onClick = onSearchEngineClick)
+                    .padding(horizontal = 6.dp, vertical = 6.dp)
+            ) {
+                SearchEngineMark(engine = searchEngine)
+            }
+            DropdownMenu(expanded = searchEngineMenuExpanded, onDismissRequest = onDismissSearchEngineMenu) {
+                allSearchEngines().forEach { engine ->
+                    DropdownMenuItem(
+                        text = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                SearchEngineMark(engine = engine)
+                                Text(engine.label)
+                            }
+                        },
+                        onClick = { onSelectSearchEngine(engine) }
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.width(6.dp))
 
         Box(
             modifier = Modifier
@@ -617,42 +671,56 @@ private fun AddressBar(
 
         Spacer(modifier = Modifier.width(6.dp))
 
-        Box {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFF3F7FF))
-                    .clickable(onClick = onSearchEngineClick)
-                    .padding(horizontal = 8.dp, vertical = 5.dp)
-            ) {
-                Text(searchEngineLabel, style = MaterialTheme.typography.labelSmall, color = PrimaryBlue)
-            }
-            DropdownMenu(expanded = searchEngineMenuExpanded, onDismissRequest = onDismissSearchEngineMenu) {
-                allSearchEngines().forEach { engine ->
-                    DropdownMenuItem(text = { Text(engine.label) }, onClick = { onSelectSearchEngine(engine) })
-                }
-            }
-        }
+        BlockedShieldBadge(count = blockedCount)
 
         Spacer(modifier = Modifier.width(6.dp))
-
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFFE3F2FD))
-                .padding(horizontal = 8.dp, vertical = 5.dp)
-        ) {
-            Text("Blocked: $blockedCount", style = MaterialTheme.typography.labelSmall, color = PrimaryBlue)
-        }
-
-        Spacer(modifier = Modifier.width(8.dp))
 
         Icon(
             if (isLoading) Icons.Default.Close else Icons.Default.Refresh,
             contentDescription = if (isLoading) "Stop loading" else "Refresh",
             modifier = Modifier
-                .size(24.dp)
+                .size(20.dp)
                 .clickable(onClick = onRefreshOrStop)
+        )
+    }
+}
+
+@Composable
+private fun SearchEngineMark(engine: SearchEngine) {
+    val (label, color) = when (engine.id) {
+        "duckduckgo" -> "D" to Color(0xFFFF6B2C)
+        "startpage" -> "S" to Color(0xFF6C63FF)
+        "bing" -> "B" to Color(0xFF0AA5D8)
+        "google" -> "G" to Color(0xFF4285F4)
+        else -> engine.label.take(1).uppercase() to PrimaryBlue
+    }
+
+    Box(
+        modifier = Modifier
+            .size(22.dp)
+            .clip(CircleShape)
+            .background(color),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            style = MaterialTheme.typography.labelSmall
+        )
+    }
+}
+
+@Composable
+private fun BlockedShieldBadge(count: Int) {
+    Box(
+        modifier = Modifier.size(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = "🛡", fontSize = 15.sp)
+        Text(
+            text = count.toString(),
+            color = PrimaryBlue,
+            style = MaterialTheme.typography.labelSmall
         )
     }
 }
