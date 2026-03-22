@@ -554,8 +554,8 @@ private fun AddressBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(AppSurface)
             .shadow(elevation = 2.dp)
+            .background(AppSurface)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
