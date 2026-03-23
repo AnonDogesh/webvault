@@ -1,7 +1,10 @@
 package com.webvault.browser
 
 import android.annotation.SuppressLint
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
@@ -119,6 +122,13 @@ private const val DESKTOP_USER_AGENT =
 
 data class HistorySite(val title: String, val url: String)
 
+private enum class BrowserContextMenuType { Link, Image }
+
+private data class BrowserContextMenu(
+    val type: BrowserContextMenuType,
+    val url: String
+)
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun BrowserScreen(
@@ -144,6 +154,7 @@ fun BrowserScreen(
     var showSearchEngineMenu by remember { mutableStateOf(false) }
     var showJsMenu by remember { mutableStateOf(false) }
     var showVideoListSheet by remember { mutableStateOf(false) }
+    var browserContextMenu by remember { mutableStateOf<BrowserContextMenu?>(null) }
     val recentHistory = remember { mutableStateOf<List<HistorySite>>(emptyList()) }
 
     val adBlockEnabled by AppPreferences.adBlockEnabledFlow(context).collectAsState(initial = true)
@@ -278,6 +289,22 @@ fun BrowserScreen(
                             settings.loadWithOverviewMode = false
                             settings.userAgentString = MOBILE_USER_AGENT
                             addJavascriptInterface(bridge, "Android")
+                            setOnLongClickListener {
+                                val result = hitTestResult ?: return@setOnLongClickListener false
+                                val extra = result.extra?.takeIf { it.isNotBlank() } ?: return@setOnLongClickListener false
+                                browserContextMenu = when (result.type) {
+                                    WebView.HitTestResult.SRC_ANCHOR_TYPE,
+                                    WebView.HitTestResult.EMAIL_TYPE,
+                                    WebView.HitTestResult.PHONE_TYPE -> BrowserContextMenu(BrowserContextMenuType.Link, extra)
+
+                                    WebView.HitTestResult.IMAGE_TYPE,
+                                    WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> BrowserContextMenu(BrowserContextMenuType.Image, extra)
+
+                                    else -> null
+                                }
+                                browserContextMenu != null
+                            }
+                            isLongClickable = true
 
                             webChromeClient = object : WebChromeClient() {
                                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
@@ -527,6 +554,40 @@ fun BrowserScreen(
             onDismiss = { showTabsSheet = false }
         )
     }
+
+    browserContextMenu?.let { menu ->
+        BrowserContextMenuSheet(
+            menu = menu,
+            onDismiss = { browserContextMenu = null },
+            onOpenCurrent = { url ->
+                browserContextMenu = null
+                onSubmitUrl(url)
+            },
+            onOpenNewTab = { url ->
+                browserContextMenu = null
+                if (!TabManager.openNewTab()) {
+                    Toast.makeText(context, "Maximum of 10 tabs reached", Toast.LENGTH_SHORT).show()
+                } else {
+                    TabManager.submitUrl(url)
+                    onNavigateToBrowser()
+                }
+            },
+            onCopy = { url ->
+                copyToClipboard(context, label = "Link", value = url)
+                Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                browserContextMenu = null
+            },
+            onShare = { url ->
+                shareUrl(context, url)
+                browserContextMenu = null
+            },
+            onDownload = { url ->
+                enqueueDirectDownload(context, url)
+                Toast.makeText(context, "Download started", Toast.LENGTH_SHORT).show()
+                browserContextMenu = null
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -637,9 +698,9 @@ private fun AddressBar(
         Box {
             Box(
                 modifier = Modifier
-                    .size(30.dp)
+                    .size(32.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(Color.White)
+                    .background(searchEngineAccentColor(searchEngine))
                     .clickable(onClick = onSearchEngineClick)
                     .padding(6.dp),
                 contentAlignment = Alignment.Center
@@ -672,7 +733,7 @@ private fun AddressBar(
 
         Box(
             modifier = Modifier
-                .size(30.dp)
+                .size(32.dp)
                 .clip(CircleShape)
                 .background(PrimaryBlue)
                 .clickable(onClick = onTabsClick)
@@ -700,19 +761,19 @@ private fun AddressBar(
 
 @Composable
 private fun SearchEngineMark(engine: SearchEngine) {
-    val (label, color) = when (engine.id) {
-        "duckduckgo" -> "D" to Color(0xFFFF6B2C)
-        "startpage" -> "S" to Color(0xFF6C63FF)
-        "bing" -> "B" to Color(0xFF0AA5D8)
-        "google" -> "G" to Color(0xFF4285F4)
-        else -> engine.label.take(1).uppercase() to PrimaryBlue
+    val label = when (engine.id) {
+        "duckduckgo" -> "D"
+        "startpage" -> "S"
+        "bing" -> "B"
+        "google" -> "G"
+        else -> engine.label.take(1).uppercase()
     }
 
     Box(
         modifier = Modifier
-            .size(18.dp)
+            .size(20.dp)
             .clip(CircleShape)
-            .background(color),
+            .background(searchEngineAccentColor(engine)),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -726,7 +787,7 @@ private fun SearchEngineMark(engine: SearchEngine) {
 @Composable
 private fun BlockedShieldBadge(count: Int) {
     Box(
-        modifier = Modifier.size(30.dp),
+        modifier = Modifier.size(32.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(text = "🛡", fontSize = 16.sp)
@@ -735,6 +796,16 @@ private fun BlockedShieldBadge(count: Int) {
             color = PrimaryBlue,
             style = MaterialTheme.typography.labelSmall
         )
+    }
+}
+
+private fun searchEngineAccentColor(engine: SearchEngine): Color {
+    return when (engine.id) {
+        "duckduckgo" -> Color(0xFFFF6B2C)
+        "startpage" -> Color(0xFF6C63FF)
+        "bing" -> Color(0xFF0AA5D8)
+        "google" -> Color(0xFF4285F4)
+        else -> PrimaryBlue
     }
 }
 
@@ -752,6 +823,70 @@ private fun WebView.applyPresentationMode(desktopMode: Boolean) {
         loadUrl(currentUrl, userAgentHeaders(desktopMode))
     } else {
         reload()
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BrowserContextMenuSheet(
+    menu: BrowserContextMenu,
+    onDismiss: () -> Unit,
+    onOpenCurrent: (String) -> Unit,
+    onOpenNewTab: (String) -> Unit,
+    onCopy: (String) -> Unit,
+    onShare: (String) -> Unit,
+    onDownload: (String) -> Unit
+) {
+    val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val isImage = menu.type == BrowserContextMenuType.Image
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = state,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = if (isImage) "Image options" else "Link options",
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text(
+                text = menu.url,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                color = Color.Gray
+            )
+            BrowserContextAction("Open") { onOpenCurrent(menu.url) }
+            BrowserContextAction(if (isImage) "View in new tab" else "Open in new tab") { onOpenNewTab(menu.url) }
+            BrowserContextAction(if (isImage) "Download image" else "Download link") { onDownload(menu.url) }
+            BrowserContextAction(if (isImage) "Copy image link" else "Copy link") { onCopy(menu.url) }
+            BrowserContextAction(if (isImage) "Share image link" else "Share link") { onShare(menu.url) }
+        }
+    }
+}
+
+@Composable
+private fun BrowserContextAction(
+    label: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF7FAFF)),
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            style = MaterialTheme.typography.bodyLarge
+        )
     }
 }
 
@@ -1048,6 +1183,33 @@ private fun enqueueDownload(context: Context, video: DetectedVideo) {
         .setInputData(data)
         .build()
     WorkManager.getInstance(context).enqueue(work)
+}
+
+private fun enqueueDirectDownload(context: Context, url: String) {
+    val cleanUrl = url.substringBefore('#')
+    val filename = cleanUrl.substringAfterLast('/').substringBefore('?').ifBlank {
+        "download_${System.currentTimeMillis()}"
+    }
+    enqueueDownload(
+        context = context,
+        video = DetectedVideo(
+            url = url,
+            filename = filename,
+            format = filename.substringAfterLast('.', "bin")
+        )
+    )
+}
+
+private fun copyToClipboard(context: Context, label: String, value: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
+}
+
+private fun shareUrl(context: Context, url: String) {
+    val intent = Intent(Intent.ACTION_SEND)
+        .setType("text/plain")
+        .putExtra(Intent.EXTRA_TEXT, url)
+    context.startActivity(Intent.createChooser(intent, null))
 }
 
 private fun normalizeToUrl(input: String, searchEngineId: String): String {
