@@ -64,7 +64,11 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     val biometricLockEnabled by AppPreferences.biometricLockEnabledFlow(context).collectAsState(initial = true)
     val defaultSearchEngineId by AppPreferences.defaultSearchEngineFlow(context).collectAsState(initial = defaultSearchEngine().id)
     val downloadQuality by AppPreferences.downloadQualityFlow(context).collectAsState(initial = "Prefer 1080p")
+    val appCloseBehavior by AppPreferences.appCloseBehaviorFlow(context).collectAsState(initial = "save_tabs")
+    val appOpenBehavior by AppPreferences.appOpenBehaviorFlow(context).collectAsState(initial = "home")
     var showDefaultEngineMenu by remember { mutableStateOf(false) }
+    var showAppCloseMenu by remember { mutableStateOf(false) }
+    var showAppOpenMenu by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -117,6 +121,54 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             }
                         )
                     }
+                }
+            )
+            SettingsDivider()
+            SettingsDropdownRow(
+                title = "On app close",
+                subtitle = if (appCloseBehavior == "clear_tabs") "Delete all tabs" else "Save tabs",
+                icon = { SettingsIconBubble("×") },
+                expanded = showAppCloseMenu,
+                onExpandedChange = { showAppCloseMenu = it },
+                menuContent = {
+                    DropdownMenuItem(
+                        text = { Text("Save tabs") },
+                        onClick = {
+                            scope.launch { AppPreferences.setAppCloseBehavior(context, "save_tabs") }
+                            showAppCloseMenu = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete all tabs") },
+                        onClick = {
+                            scope.launch { AppPreferences.setAppCloseBehavior(context, "clear_tabs") }
+                            showAppCloseMenu = false
+                        }
+                    )
+                }
+            )
+            SettingsDivider()
+            SettingsDropdownRow(
+                title = "On app open",
+                subtitle = if (appOpenBehavior == "last_tab") "Last tab" else "Home page",
+                icon = { SettingsIconBubble("↺") },
+                expanded = showAppOpenMenu,
+                onExpandedChange = { showAppOpenMenu = it },
+                menuContent = {
+                    DropdownMenuItem(
+                        text = { Text("Home page") },
+                        onClick = {
+                            scope.launch { AppPreferences.setAppOpenBehavior(context, "home") }
+                            showAppOpenMenu = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Last tab") },
+                        onClick = {
+                            scope.launch { AppPreferences.setAppOpenBehavior(context, "last_tab") }
+                            showAppOpenMenu = false
+                        }
+                    )
                 }
             )
         }
