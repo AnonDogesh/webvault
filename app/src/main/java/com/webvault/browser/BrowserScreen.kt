@@ -1,10 +1,7 @@
 package com.webvault.browser
 
 import android.annotation.SuppressLint
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
@@ -57,6 +54,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -122,12 +120,11 @@ private const val DESKTOP_USER_AGENT =
 
 data class HistorySite(val title: String, val url: String)
 
-private enum class BrowserContextMenuType { Link, Image }
-
-private data class BrowserContextMenu(
-    val type: BrowserContextMenuType,
-    val url: String
-)
+sealed class WebContextItem {
+    data class LinkItem(val url: String) : WebContextItem()
+    data class ImageItem(val imageUrl: String) : WebContextItem()
+    data class ImageLinkItem(val imageUrl: String, val linkUrl: String) : WebContextItem()
+}
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -154,7 +151,7 @@ fun BrowserScreen(
     var showSearchEngineMenu by remember { mutableStateOf(false) }
     var showJsMenu by remember { mutableStateOf(false) }
     var showVideoListSheet by remember { mutableStateOf(false) }
-    var browserContextMenu by remember { mutableStateOf<BrowserContextMenu?>(null) }
+    var contextMenuItem by remember { mutableStateOf<WebContextItem?>(null) }
     val recentHistory = remember { mutableStateOf<List<HistorySite>>(emptyList()) }
 
     val adBlockEnabled by AppPreferences.adBlockEnabledFlow(context).collectAsState(initial = true)
@@ -290,19 +287,30 @@ fun BrowserScreen(
                             settings.userAgentString = MOBILE_USER_AGENT
                             addJavascriptInterface(bridge, "Android")
                             setOnLongClickListener {
-                                val result = hitTestResult ?: return@setOnLongClickListener false
-                                val extra = result.extra?.takeIf { it.isNotBlank() } ?: return@setOnLongClickListener false
-                                browserContextMenu = when (result.type) {
-                                    WebView.HitTestResult.SRC_ANCHOR_TYPE,
-                                    WebView.HitTestResult.EMAIL_TYPE,
-                                    WebView.HitTestResult.PHONE_TYPE -> BrowserContextMenu(BrowserContextMenuType.Link, extra)
-
+                                val result = hitTestResult
+                                val extra = result.extra
+                                when (result.type) {
+                                    WebView.HitTestResult.SRC_ANCHOR_TYPE -> {
+                                        if (!extra.isNullOrBlank()) contextMenuItem = WebContextItem.LinkItem(extra)
+                                    }
                                     WebView.HitTestResult.IMAGE_TYPE,
-                                    WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> BrowserContextMenu(BrowserContextMenuType.Image, extra)
-
-                                    else -> null
+                                    WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> {
+                                        val imgUrl = extra.orEmpty()
+                                        if (result.type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) {
+                                            val msg = android.os.Handler(android.os.Looper.getMainLooper()).obtainMessage()
+                                            requestFocusNodeHref(msg)
+                                            val linkUrl = msg.data?.getString("url").orEmpty()
+                                            contextMenuItem = if (linkUrl.isNotBlank())
+                                                WebContextItem.ImageLinkItem(imgUrl, linkUrl)
+                                            else
+                                                WebContextItem.ImageItem(imgUrl)
+                                        } else {
+                                            contextMenuItem = WebContextItem.ImageItem(imgUrl)
+                                        }
+                                    }
+                                    else -> { }
                                 }
-                                browserContextMenu != null
+                                false
                             }
                             isLongClickable = true
 
@@ -555,39 +563,45 @@ fun BrowserScreen(
         )
     }
 
-    browserContextMenu?.let { menu ->
-        BrowserContextMenuSheet(
-            menu = menu,
-            onDismiss = { browserContextMenu = null },
-            onOpenCurrent = { url ->
-                browserContextMenu = null
-                onSubmitUrl(url)
-            },
-            onOpenNewTab = { url ->
-                browserContextMenu = null
-                if (!TabManager.openNewTab()) {
-                    Toast.makeText(context, "Maximum of 10 tabs reached", Toast.LENGTH_SHORT).show()
-                } else {
+    contextMenuItem?.let { item ->
+        WebContextMenuSheet(
+            item = item,
+            onDismiss = { contextMenuItem = null },
+            onOpenInNewTab = { url ->
+                if (TabManager.openNewTab()) {
                     TabManager.submitUrl(url)
-                    onNavigateToBrowser()
+                } else {
+                    Toast.makeText(context, "Maximum of 10 tabs reached", Toast.LENGTH_SHORT).show()
                 }
             },
-            onCopy = { url ->
-                copyToClipboard(context, label = "Link", value = url)
-                Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
-                browserContextMenu = null
+            onDownload = { url, filename ->
+                val id = UUID.randomUUID().toString()
+                val data = androidx.work.Data.Builder()
+                    .putString(DownloadWorker.KEY_URL, url)
+                    .putString(DownloadWorker.KEY_FILENAME, filename)
+                    .putString(DownloadWorker.KEY_ID, id)
+                    .build()
+                val work = androidx.work.OneTimeWorkRequestBuilder<DownloadWorker>()
+                    .setInputData(data)
+                    .build()
+                androidx.work.WorkManager.getInstance(context).enqueue(work)
+                Toast.makeText(context, "Downloading $filename", Toast.LENGTH_SHORT).show()
+            },
+            onCopyLink = { url ->
+                val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("URL", url))
+                Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
             },
             onShare = { url ->
-                shareUrl(context, url)
-                browserContextMenu = null
-            },
-            onDownload = { url ->
-                enqueueDirectDownload(context, url)
-                Toast.makeText(context, "Download started", Toast.LENGTH_SHORT).show()
-                browserContextMenu = null
+                val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(android.content.Intent.EXTRA_TEXT, url)
+                }
+                context.startActivity(android.content.Intent.createChooser(intent, "Share via"))
             }
         )
     }
+
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -828,64 +842,116 @@ private fun WebView.applyPresentationMode(desktopMode: Boolean) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BrowserContextMenuSheet(
-    menu: BrowserContextMenu,
+private fun WebContextMenuSheet(
+    item: WebContextItem,
     onDismiss: () -> Unit,
-    onOpenCurrent: (String) -> Unit,
-    onOpenNewTab: (String) -> Unit,
-    onCopy: (String) -> Unit,
-    onShare: (String) -> Unit,
-    onDownload: (String) -> Unit
+    onOpenInNewTab: (String) -> Unit,
+    onDownload: (url: String, filename: String) -> Unit,
+    onCopyLink: (String) -> Unit,
+    onShare: (String) -> Unit
 ) {
-    val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val isImage = menu.type == BrowserContextMenuType.Image
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = state,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        sheetState = sheetState,
+        containerColor = AppSurface,
+        tonalElevation = 4.dp
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(bottom = 24.dp)
         ) {
+            val headerText = when (item) {
+                is WebContextItem.LinkItem -> item.url
+                is WebContextItem.ImageItem -> item.imageUrl
+                is WebContextItem.ImageLinkItem -> item.linkUrl
+            }
             Text(
-                text = if (isImage) "Image options" else "Link options",
-                style = MaterialTheme.typography.titleMedium
-            )
-            Text(
-                text = menu.url,
-                style = MaterialTheme.typography.bodySmall,
+                text = headerText,
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFF888780),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                color = Color.Gray
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
             )
-            BrowserContextAction("Open") { onOpenCurrent(menu.url) }
-            BrowserContextAction(if (isImage) "View in new tab" else "Open in new tab") { onOpenNewTab(menu.url) }
-            BrowserContextAction(if (isImage) "Download image" else "Download link") { onDownload(menu.url) }
-            BrowserContextAction(if (isImage) "Copy image link" else "Copy link") { onCopy(menu.url) }
-            BrowserContextAction(if (isImage) "Share image link" else "Share link") { onShare(menu.url) }
+
+            HorizontalDivider(color = Color(0xFFF0F0F0))
+
+            when (item) {
+                is WebContextItem.LinkItem -> {
+                    ContextMenuAction(icon = "🔗", label = "Open in new tab") {
+                        onOpenInNewTab(item.url); onDismiss()
+                    }
+                    ContextMenuAction(icon = "📋", label = "Copy link") {
+                        onCopyLink(item.url); onDismiss()
+                    }
+                    ContextMenuAction(icon = "↗", label = "Share link") {
+                        onShare(item.url); onDismiss()
+                    }
+                }
+                is WebContextItem.ImageItem -> {
+                    ContextMenuAction(icon = "⬇", label = "Download image") {
+                        val filename = item.imageUrl.substringAfterLast('/').substringBefore('?')
+                            .ifBlank { "image_${'$'}{System.currentTimeMillis()}.jpg" }
+                        onDownload(item.imageUrl, filename); onDismiss()
+                    }
+                    ContextMenuAction(icon = "📋", label = "Copy image URL") {
+                        onCopyLink(item.imageUrl); onDismiss()
+                    }
+                    ContextMenuAction(icon = "↗", label = "Share image URL") {
+                        onShare(item.imageUrl); onDismiss()
+                    }
+                }
+                is WebContextItem.ImageLinkItem -> {
+                    ContextMenuAction(icon = "🔗", label = "Open link in new tab") {
+                        onOpenInNewTab(item.linkUrl); onDismiss()
+                    }
+                    ContextMenuAction(icon = "⬇", label = "Download image") {
+                        val filename = item.imageUrl.substringAfterLast('/').substringBefore('?')
+                            .ifBlank { "image_${'$'}{System.currentTimeMillis()}.jpg" }
+                        onDownload(item.imageUrl, filename); onDismiss()
+                    }
+                    ContextMenuAction(icon = "📋", label = "Copy link") {
+                        onCopyLink(item.linkUrl); onDismiss()
+                    }
+                    ContextMenuAction(icon = "📋", label = "Copy image URL") {
+                        onCopyLink(item.imageUrl); onDismiss()
+                    }
+                    ContextMenuAction(icon = "↗", label = "Share link") {
+                        onShare(item.linkUrl); onDismiss()
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun BrowserContextAction(
-    label: String,
-    onClick: () -> Unit
-) {
-    Card(
+private fun ContextMenuAction(icon: String, label: String, onClick: () -> Unit) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFF7FAFF)),
-        shape = RoundedCornerShape(18.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFFF0F6FF)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(icon, fontSize = 16.sp)
+        }
         Text(
             text = label,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            style = MaterialTheme.typography.bodyLarge
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = Color(0xFF1A1A1A)
         )
     }
 }
@@ -1200,17 +1266,7 @@ private fun enqueueDirectDownload(context: Context, url: String) {
     )
 }
 
-private fun copyToClipboard(context: Context, label: String, value: String) {
-    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
-}
 
-private fun shareUrl(context: Context, url: String) {
-    val intent = Intent(Intent.ACTION_SEND)
-        .setType("text/plain")
-        .putExtra(Intent.EXTRA_TEXT, url)
-    context.startActivity(Intent.createChooser(intent, null))
-}
 
 private fun normalizeToUrl(input: String, searchEngineId: String): String {
     val trimmed = input.trim()
