@@ -21,6 +21,8 @@ object AppPreferences {
     private val biometricLockEnabledKey = booleanPreferencesKey("biometric_lock_enabled")
     private val defaultSearchEngineKey = stringPreferencesKey("default_search_engine")
     private val downloadQualityKey = stringPreferencesKey("download_quality")
+    private val appCloseBehaviorKey = stringPreferencesKey("app_close_behavior")
+    private val appOpenBehaviorKey = stringPreferencesKey("app_open_behavior")
     private val jsRulesKey = stringSetPreferencesKey("js_rules")
 
     fun adBlockEnabledFlow(context: Context): Flow<Boolean> = context.webvaultDataStore.data.map {
@@ -45,6 +47,14 @@ object AppPreferences {
 
     fun downloadQualityFlow(context: Context): Flow<String> = context.webvaultDataStore.data.map {
         it[downloadQualityKey] ?: "Prefer 1080p"
+    }
+
+    fun appCloseBehaviorFlow(context: Context): Flow<String> = context.webvaultDataStore.data.map {
+        it[appCloseBehaviorKey] ?: "save_tabs"
+    }
+
+    fun appOpenBehaviorFlow(context: Context): Flow<String> = context.webvaultDataStore.data.map {
+        it[appOpenBehaviorKey] ?: "home"
     }
 
     suspend fun setAdBlockEnabled(context: Context, enabled: Boolean) {
@@ -80,6 +90,18 @@ object AppPreferences {
     suspend fun setDownloadQuality(context: Context, quality: String) {
         context.webvaultDataStore.edit { prefs ->
             prefs[downloadQualityKey] = quality
+        }
+    }
+
+    suspend fun setAppCloseBehavior(context: Context, behavior: String) {
+        context.webvaultDataStore.edit { prefs ->
+            prefs[appCloseBehaviorKey] = behavior
+        }
+    }
+
+    suspend fun setAppOpenBehavior(context: Context, behavior: String) {
+        context.webvaultDataStore.edit { prefs ->
+            prefs[appOpenBehaviorKey] = behavior
         }
     }
 

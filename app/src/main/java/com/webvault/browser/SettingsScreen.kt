@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.launch
 
 private val SettingsBlue = Color(0xFF2D8CDB)
@@ -64,7 +64,11 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     val biometricLockEnabled by AppPreferences.biometricLockEnabledFlow(context).collectAsState(initial = true)
     val defaultSearchEngineId by AppPreferences.defaultSearchEngineFlow(context).collectAsState(initial = defaultSearchEngine().id)
     val downloadQuality by AppPreferences.downloadQualityFlow(context).collectAsState(initial = "Prefer 1080p")
+    val appCloseBehavior by AppPreferences.appCloseBehaviorFlow(context).collectAsState(initial = "save_tabs")
+    val appOpenBehavior by AppPreferences.appOpenBehaviorFlow(context).collectAsState(initial = "home")
     var showDefaultEngineMenu by remember { mutableStateOf(false) }
+    var showAppCloseMenu by remember { mutableStateOf(false) }
+    var showAppOpenMenu by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -117,6 +121,54 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             }
                         )
                     }
+                }
+            )
+            SettingsDivider()
+            SettingsDropdownRow(
+                title = "On app close",
+                subtitle = if (appCloseBehavior == "clear_tabs") "Delete all tabs" else "Save tabs",
+                icon = { SettingsIconBubble("×") },
+                expanded = showAppCloseMenu,
+                onExpandedChange = { showAppCloseMenu = it },
+                menuContent = {
+                    DropdownMenuItem(
+                        text = { Text("Save tabs") },
+                        onClick = {
+                            scope.launch { AppPreferences.setAppCloseBehavior(context, "save_tabs") }
+                            showAppCloseMenu = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete all tabs") },
+                        onClick = {
+                            scope.launch { AppPreferences.setAppCloseBehavior(context, "clear_tabs") }
+                            showAppCloseMenu = false
+                        }
+                    )
+                }
+            )
+            SettingsDivider()
+            SettingsDropdownRow(
+                title = "On app open",
+                subtitle = if (appOpenBehavior == "last_tab") "Last tab" else "Home page",
+                icon = { SettingsIconBubble("↺") },
+                expanded = showAppOpenMenu,
+                onExpandedChange = { showAppOpenMenu = it },
+                menuContent = {
+                    DropdownMenuItem(
+                        text = { Text("Home page") },
+                        onClick = {
+                            scope.launch { AppPreferences.setAppOpenBehavior(context, "home") }
+                            showAppOpenMenu = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Last tab") },
+                        onClick = {
+                            scope.launch { AppPreferences.setAppOpenBehavior(context, "last_tab") }
+                            showAppOpenMenu = false
+                        }
+                    )
                 }
             )
         }
@@ -313,8 +365,20 @@ private fun SettingsDropdownRow(
             icon = icon,
             onClick = { onExpandedChange(true) }
         )
-        DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
-            Column(content = menuContent)
+        if (expanded) {
+            Dialog(onDismissRequest = { onExpandedChange(false) }) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    ) {
+                        menuContent()
+                    }
+                }
+            }
         }
     }
 }
