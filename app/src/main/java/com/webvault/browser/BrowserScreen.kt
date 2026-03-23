@@ -182,7 +182,7 @@ fun BrowserScreen(
     LaunchedEffect(activeTabId, activeTab.pendingUrl) {
         val pending = activeTab.pendingUrl
         if (pending.isNotBlank()) {
-            webViewRef.value?.loadUrl(pending)
+            webViewRef.value?.loadUrl(pending, userAgentHeaders(activeTab.isDesktopMode))
         }
     }
 
@@ -271,6 +271,9 @@ fun BrowserScreen(
                         WebView(ctx).apply {
                             settings.domStorageEnabled = true
                             settings.javaScriptEnabled = true
+                            settings.setSupportZoom(true)
+                            settings.builtInZoomControls = true
+                            settings.displayZoomControls = false
                             settings.useWideViewPort = false
                             settings.loadWithOverviewMode = false
                             settings.userAgentString = MOBILE_USER_AGENT
@@ -440,7 +443,8 @@ fun BrowserScreen(
 
                 DropdownMenu(
                     expanded = showBrowserMenu,
-                    onDismissRequest = { showBrowserMenu = false }
+                    onDismissRequest = { showBrowserMenu = false },
+                    shape = RoundedCornerShape(20.dp)
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
@@ -453,10 +457,7 @@ fun BrowserScreen(
                             onCheckedChange = { enabled ->
                                 TabManager.updateActiveTab(desktopMode = enabled)
                                 webViewRef.value?.apply {
-                                    settings.useWideViewPort = enabled
-                                    settings.loadWithOverviewMode = enabled
-                                    settings.userAgentString = if (enabled) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
-                                    reload()
+                                    applyPresentationMode(enabled)
                                 }
                             }
                         )
@@ -572,7 +573,11 @@ private fun AddressBar(
                     .size(20.dp)
                     .combinedClickable(onClick = {}, onLongClick = onLockLongPress)
             )
-            DropdownMenu(expanded = showJsMenu, onDismissRequest = onDismissJsMenu) {
+            DropdownMenu(
+                expanded = showJsMenu,
+                onDismissRequest = onDismissJsMenu,
+                shape = RoundedCornerShape(20.dp)
+            ) {
                 DropdownMenuItem(
                     text = { Text(if (jsAllowed) "Block JavaScript on this site" else "Allow JavaScript") },
                     onClick = {
@@ -632,14 +637,20 @@ private fun AddressBar(
         Box {
             Box(
                 modifier = Modifier
+                    .size(30.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(Color.White)
                     .clickable(onClick = onSearchEngineClick)
-                    .padding(horizontal = 6.dp, vertical = 6.dp)
+                    .padding(6.dp),
+                contentAlignment = Alignment.Center
             ) {
                 SearchEngineMark(engine = searchEngine)
             }
-            DropdownMenu(expanded = searchEngineMenuExpanded, onDismissRequest = onDismissSearchEngineMenu) {
+            DropdownMenu(
+                expanded = searchEngineMenuExpanded,
+                onDismissRequest = onDismissSearchEngineMenu,
+                shape = RoundedCornerShape(20.dp)
+            ) {
                 allSearchEngines().forEach { engine ->
                     DropdownMenuItem(
                         text = {
@@ -661,10 +672,12 @@ private fun AddressBar(
 
         Box(
             modifier = Modifier
+                .size(30.dp)
                 .clip(CircleShape)
                 .background(PrimaryBlue)
                 .clickable(onClick = onTabsClick)
-                .padding(horizontal = 10.dp, vertical = 6.dp)
+                .padding(0.dp),
+            contentAlignment = Alignment.Center
         ) {
             Text(tabCount.toString(), color = Color.White, style = MaterialTheme.typography.labelMedium)
         }
@@ -697,7 +710,7 @@ private fun SearchEngineMark(engine: SearchEngine) {
 
     Box(
         modifier = Modifier
-            .size(22.dp)
+            .size(18.dp)
             .clip(CircleShape)
             .background(color),
         contentAlignment = Alignment.Center
@@ -713,15 +726,32 @@ private fun SearchEngineMark(engine: SearchEngine) {
 @Composable
 private fun BlockedShieldBadge(count: Int) {
     Box(
-        modifier = Modifier.size(24.dp),
+        modifier = Modifier.size(30.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text = "🛡", fontSize = 15.sp)
+        Text(text = "🛡", fontSize = 16.sp)
         Text(
             text = count.toString(),
             color = PrimaryBlue,
             style = MaterialTheme.typography.labelSmall
         )
+    }
+}
+
+private fun userAgentHeaders(desktopMode: Boolean): Map<String, String> {
+    return mapOf("User-Agent" to if (desktopMode) DESKTOP_USER_AGENT else MOBILE_USER_AGENT)
+}
+
+private fun WebView.applyPresentationMode(desktopMode: Boolean) {
+    settings.useWideViewPort = desktopMode
+    settings.loadWithOverviewMode = desktopMode
+    settings.userAgentString = if (desktopMode) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
+
+    val currentUrl = url
+    if (!currentUrl.isNullOrBlank()) {
+        loadUrl(currentUrl, userAgentHeaders(desktopMode))
+    } else {
+        reload()
     }
 }
 

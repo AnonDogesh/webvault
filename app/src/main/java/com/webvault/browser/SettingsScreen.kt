@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.launch
 
 private val SettingsBlue = Color(0xFF2D8CDB)
@@ -313,8 +313,20 @@ private fun SettingsDropdownRow(
             icon = icon,
             onClick = { onExpandedChange(true) }
         )
-        DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
-            Column(content = menuContent)
+        if (expanded) {
+            Dialog(onDismissRequest = { onExpandedChange(false) }) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    ) {
+                        menuContent()
+                    }
+                }
+            }
         }
     }
 }
